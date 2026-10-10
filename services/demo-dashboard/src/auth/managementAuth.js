@@ -1,4 +1,9 @@
+// ADMIN 管理员（全部权限）、BOSS 老板（只读）、LEASING 招商人员，对应 leadgen.roles。
+// 其余是保留模块仍在使用的旧角色名。
 export const MANAGEMENT_ROLES = Object.freeze([
+  'ADMIN',
+  'BOSS',
+  'LEASING',
   'SALES',
   'MANAGEMENT',
   'DATA_ADMIN',
@@ -7,6 +12,11 @@ export const MANAGEMENT_ROLES = Object.freeze([
   'OUTREACH_APPROVER',
   'SENDER_OPERATOR'
 ]);
+
+/** The leasing floor price is visible to administrators only. */
+export function canSeeFloorPrice(user) {
+  return user?.role === 'ADMIN';
+}
 
 /**
  * Supplies the audit identity used by the single-company workspace.
@@ -17,9 +27,10 @@ export const MANAGEMENT_ROLES = Object.freeze([
  * without changing the business services that consume req.managementUser.
  */
 export function createManagementAuth(env = process.env) {
-  const identity = String(env.DPV_WORKSPACE_ACTOR || 'dpv-workspace').trim() || 'dpv-workspace';
-  const configuredRole = String(env.DPV_WORKSPACE_ROLE || 'MANAGEMENT').trim().toUpperCase();
-  const role = MANAGEMENT_ROLES.includes(configuredRole) ? configuredRole : 'MANAGEMENT';
+  const identity = String(env.DPV_WORKSPACE_ACTOR || 'admin').trim() || 'admin';
+  const configuredRole = String(env.DPV_WORKSPACE_ROLE || 'ADMIN').trim().toUpperCase();
+  // An unrecognised role gets the read-only one, never administrator.
+  const role = MANAGEMENT_ROLES.includes(configuredRole) ? configuredRole : 'BOSS';
   const user = Object.freeze({ identity, role });
 
   function attachWorkspaceUser(req, _res, next) {

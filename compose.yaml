@@ -14,9 +14,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    # 只映射到本机，供导入脚本和迁移命令使用。
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/migrations:/docker-entrypoint-initdb.d:ro
 
   app:
     build:
@@ -36,13 +38,15 @@ services:
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       DPV_MAINTENANCE_READ_ONLY: ${DPV_MAINTENANCE_READ_ONLY:-false}
       DPV_WORKSPACE_ACTOR: ${DPV_WORKSPACE_ACTOR:-admin}
-      DPV_WORKSPACE_ROLE: ${DPV_WORKSPACE_ROLE:-MANAGEMENT}
+      DPV_WORKSPACE_ROLE: ${DPV_WORKSPACE_ROLE:-ADMIN}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: ${TZ}
+    volumes:
+      - ./data/media:/app/data/media:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 5s
