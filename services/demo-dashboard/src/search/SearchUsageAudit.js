@@ -7,7 +7,7 @@ export function searchRequestFingerprint({provider,researchJobId,companyId=null,
     language:request.searchLang||request.language||'en',offset:Number(request.offset||0),count:Number(request.count||10),
     depth:request.searchDepth||request.search_depth||null})).digest('hex');
 }
-// Brave result caching requires the caller's existing storage-rights gate. No secrets.
+// Result caching requires the caller's existing storage-rights gate. No secrets.
 // Unfinished claims are
 // deliberately held for investigation rather than automatically repeated/billed.
 export class SearchUsageAudit{

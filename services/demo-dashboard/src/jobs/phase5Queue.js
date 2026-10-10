@@ -8,43 +8,8 @@ const WORKER_READINESS_FILE = path.join(tmpdir(), 'dpv-phase5-worker-ready.json'
 export const PHASE5_QUEUES = Object.freeze({
   SCORE_COMPANY: 'score-company',
   SCORE_ALL_ELIGIBLE: 'score-all-eligible',
-  RECALCULATE_CUSTOMER_MATCH: 'recalculate-customer-match',
-  REBUILD_ICP_PROFILE: 'rebuild-icp-profile',
   REPLAY_RULE_VERSION: 'replay-rule-version',
-  ENRICH_DECISION_MAKERS: 'enrich-decision-makers',
-  COLLECT_CATEGORY_BUYER_EVIDENCE: 'collect-category-buyer-evidence',
-  CLASSIFY_BUYER_BUSINESS_MODEL: 'classify-buyer-business-model',
-  CALCULATE_CATEGORY_PROCUREMENT_MATCH: 'calculate-category-procurement-match',
-  CALCULATE_PRODUCT_OPPORTUNITIES: 'calculate-product-opportunities',
-  RECALCULATE_COOPERATION_V3: 'recalculate-cooperation-v3',
-  RECALCULATE_BUSINESS_OPPORTUNITIES: 'recalculate-business-opportunities',
-  VERIFY_OUTREACH_CONTACT: 'verify-outreach-contact',
-  SEND_OUTREACH_EMAIL: 'send-outreach-email',
-  SEND_AUTO_FIRST_TOUCH: 'send-auto-first-touch',
-  PROCESS_EMAIL_PROVIDER_EVENT: 'process-email-provider-event',
-  PROCESS_INBOUND_MESSAGE: 'process-inbound-message',
-  GMAIL_INBOUND_SYNC: 'gmail-inbound-sync',
-  INBOUND_EMAIL_SYNC: 'inbound-email-sync',
-  SEND_CONTROLLED_APPLICATION_EMAIL: 'send-controlled-application-email',
-  CONTROLLED_APPLICATION_INBOUND_SYNC: 'controlled-application-inbound-sync',
-  PROCESS_CONTROLLED_APPLICATION_INBOUND: 'process-controlled-application-inbound',
-  RECONCILE_GMAIL_AMBIGUOUS_SEND: 'reconcile-gmail-ambiguous-send',
-  CLASSIFY_INBOUND_REPLY: 'classify-inbound-reply',
-  CREATE_SALES_FOLLOWUP: 'create-sales-followup',
-  SYNC_OUTREACH_TO_CRM: 'sync-outreach-to-crm',
-  DISCOVER_SHARED_IMPORT_FILES: 'discover-shared-import-files',
-  COMMIT_REFERENCE_IMPORT: 'commit-reference-import',
-  EXPORT_BUSINESS_DATA: 'export-business-data',
-  RECALCULATE_AFTER_IMPORT: 'recalculate-after-import',
-  SCHEDULE_AUTO_EVIDENCE: 'schedule-auto-evidence',
-  DISCOVER_OPPORTUNITY_EVIDENCE: 'discover-opportunity-evidence',
-  NORMALIZE_OPPORTUNITY_CATEGORY: 'normalize-opportunity-category',
-  REFRESH_CATEGORY_SCOPE_MATCH: 'refresh-category-scope-match',
-  FIND_PROFILE_BUYER: 'find-profile-buyer',
-  VERIFY_PROFILE_BUYER_EMAIL: 'verify-profile-buyer-email',
-  REFRESH_BUSINESS_OPPORTUNITY_V3: 'refresh-business-opportunity-v3',
-  REFRESH_AUTO_EVIDENCE_EXCEPTION: 'refresh-auto-evidence-exception',
-  EXECUTE_RESEARCH_JOB: 'execute-research-job'
+  EXPORT_BUSINESS_DATA: 'export-business-data'
 });
 
 export const PHASE5_QUEUE_NAMES = Object.freeze(Object.values(PHASE5_QUEUES));
@@ -54,38 +19,7 @@ function queuePolicy(name) {
     retryLimit: 3,
     retryDelay: 5,
     retryBackoff: true,
-    expireInSeconds: [
-      PHASE5_QUEUES.ENRICH_DECISION_MAKERS,
-      PHASE5_QUEUES.COLLECT_CATEGORY_BUYER_EVIDENCE,
-      PHASE5_QUEUES.CLASSIFY_BUYER_BUSINESS_MODEL,
-      PHASE5_QUEUES.CALCULATE_CATEGORY_PROCUREMENT_MATCH,
-      PHASE5_QUEUES.CALCULATE_PRODUCT_OPPORTUNITIES,
-      PHASE5_QUEUES.RECALCULATE_COOPERATION_V3,
-      PHASE5_QUEUES.RECALCULATE_BUSINESS_OPPORTUNITIES,
-      PHASE5_QUEUES.VERIFY_OUTREACH_CONTACT,
-      PHASE5_QUEUES.SEND_OUTREACH_EMAIL,
-      PHASE5_QUEUES.SEND_AUTO_FIRST_TOUCH,
-      PHASE5_QUEUES.PROCESS_EMAIL_PROVIDER_EVENT,
-      PHASE5_QUEUES.PROCESS_INBOUND_MESSAGE,
-      PHASE5_QUEUES.GMAIL_INBOUND_SYNC,
-      PHASE5_QUEUES.INBOUND_EMAIL_SYNC,
-      PHASE5_QUEUES.SEND_CONTROLLED_APPLICATION_EMAIL,
-      PHASE5_QUEUES.CONTROLLED_APPLICATION_INBOUND_SYNC,
-      PHASE5_QUEUES.PROCESS_CONTROLLED_APPLICATION_INBOUND,
-      PHASE5_QUEUES.RECONCILE_GMAIL_AMBIGUOUS_SEND,
-      PHASE5_QUEUES.COMMIT_REFERENCE_IMPORT,
-      PHASE5_QUEUES.EXPORT_BUSINESS_DATA,
-      PHASE5_QUEUES.RECALCULATE_AFTER_IMPORT,
-      PHASE5_QUEUES.SCHEDULE_AUTO_EVIDENCE,
-      PHASE5_QUEUES.DISCOVER_OPPORTUNITY_EVIDENCE,
-      PHASE5_QUEUES.NORMALIZE_OPPORTUNITY_CATEGORY,
-      PHASE5_QUEUES.REFRESH_CATEGORY_SCOPE_MATCH,
-      PHASE5_QUEUES.FIND_PROFILE_BUYER,
-      PHASE5_QUEUES.VERIFY_PROFILE_BUYER_EMAIL,
-      PHASE5_QUEUES.REFRESH_BUSINESS_OPPORTUNITY_V3,
-      PHASE5_QUEUES.REFRESH_AUTO_EVIDENCE_EXCEPTION,
-      PHASE5_QUEUES.EXECUTE_RESEARCH_JOB
-    ].includes(name) ? 900 : 300,
+    expireInSeconds: name === PHASE5_QUEUES.EXPORT_BUSINESS_DATA ? 900 : 300,
     heartbeatSeconds: 60,
     deleteAfterSeconds: 86400,
     retentionSeconds: 604800,
@@ -195,12 +129,6 @@ export function createPhase5Queue({
         boss.on('error', error => audit('phase5_queue_error', { message: String(error?.message || error).slice(0, 240) }));
         await boss.start();
         for (const name of PHASE5_QUEUE_NAMES) await registerQueue(name);
-        const inboundProvider=String(env.INBOUND_EMAIL_PROVIDER||'').trim().toUpperCase();
-        const inboundEnabled=inboundProvider==='IMAP'?booleanEnv(env.SMTP_IMAP_INBOUND_SYNC_ENABLED,false):inboundProvider==='GMAIL_API'&&booleanEnv(env.GMAIL_INBOUND_SYNC_ENABLED,false);
-        if (inboundEnabled && typeof boss.schedule === 'function') {
-          const minutes=Math.max(1,Math.min(59,Number(env.INBOUND_EMAIL_SYNC_INTERVAL_MINUTES||env.GMAIL_INBOUND_SYNC_INTERVAL_MINUTES)||5));
-          await boss.schedule(PHASE5_QUEUES.INBOUND_EMAIL_SYNC,`*/${minutes} * * * *`,{}, { tz:'UTC' });
-        }
         for (const name of workerQueueNames) {
           if (!processJobs) continue;
           if (!handlers[name]) continue;

@@ -4,8 +4,7 @@ const fail=(code,status=422)=>Object.assign(new Error(code),{code,status});
 const canonical=value=>JSON.stringify(value,Object.keys(value||{}).sort());
 
 export const AUTOMATION_CONTROLS=Object.freeze({
-  RESEARCH_PROVIDER_EXECUTION:'RESEARCH_PROVIDER_EXECUTION',
-  PHASE13_AUTO_FIRST_TOUCH:'PHASE13_AUTO_FIRST_TOUCH'
+  RESEARCH_PROVIDER_EXECUTION:'RESEARCH_PROVIDER_EXECUTION'
 });
 
 export class AutomationControlService {
