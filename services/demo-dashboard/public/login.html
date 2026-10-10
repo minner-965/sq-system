@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="login">
+  <main class="card login-card">
+    <div class="brand-row"><div class="brand-mark">恒</div><h1>恒兆广场招商系统</h1></div>
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="username">账号</label>
+        <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <p class="form-error" id="login-error" role="alert"></p>
+      <button class="btn pri" type="submit" id="login-submit">登录</button>
+    </form>
+  </main>
+  <script type="module" src="/assets/login.js"></script>
+</body>
+</html>

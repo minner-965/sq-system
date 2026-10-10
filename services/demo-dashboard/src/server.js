@@ -8,11 +8,12 @@ import { maintenanceReadOnly, maintenanceWriteGuard } from './maintenanceMode.js
 import { createTelemetryService, instrumentPgPool } from './observability/telemetry.js';
 import { createPhase5Queue, PHASE5_QUEUES } from './jobs/phase5Queue.js';
 import { ScoringService } from './scoring/scoringService.js';
-import { createManagementAuth } from './auth/managementAuth.js';
+import { createSessionAuth } from './auth/sessionAuth.js';
 import { AutomationControlService } from './automation/AutomationControlService.js';
 import { poolConfig } from './db/pool.js';
 import { runMigrations } from './db/migrator.js';
 import { createLeasingRouter } from './leasing/leasingRoutes.js';
+import { getOverview } from './overview/overviewService.js';
 
 const { Pool } = pg;
 const app = express();
@@ -23,17 +24,17 @@ const maintenanceMode = maintenanceReadOnly();
 if (maintenanceMode && !httpListenEnabled) throw new Error('Read-only maintenance is an HTTP-only mode');
 app.use(maintenanceWriteGuard(maintenanceMode));
 
-const managementAuth = createManagementAuth(process.env);
 const telemetry = createTelemetryService({
   enabled: /^(1|true|yes|on)$/i.test(process.env.OTEL_ENABLED || ''),
   serviceName: 'hz-leasing-app'
 });
 const pool = new Pool({
   ...poolConfig(),
-  ...(maintenanceMode ? { options: '-c default_transaction_read_only=on' } : {}),
+  ...(maintenanceMode ? { options: `${poolConfig().options} -c default_transaction_read_only=on` } : {}),
 });
 instrumentPgPool(pool, telemetry);
 
+const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 const mediaDir = process.env.HZ_MEDIA_DIR || path.join(process.env.DPV_PROJECT_ROOT || fileURLToPath(new URL('../../..', import.meta.url)), 'data', 'media');
 
 const scoringService = new ScoringService({ pool });
@@ -67,9 +68,6 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '16mb' }));
-app.use('/vendor/tabler', express.static(new URL('../node_modules/@tabler/core/dist', import.meta.url).pathname));
-app.use('/vendor/tabler-icons', express.static(new URL('../node_modules/@tabler/icons-webfont/dist', import.meta.url).pathname));
-app.use(express.static(new URL('../public', import.meta.url).pathname));
 
 app.get('/api/health', async (_req, res) => {
   try {
@@ -79,42 +77,66 @@ app.get('/api/health', async (_req, res) => {
   } catch (error) { res.status(503).json({ status: 'error', error: error.message }); }
 });
 
-const controlRead = [managementAuth.authenticate, managementAuth.requireRoles('ADMIN', 'BOSS', 'LEASING', 'MANAGEMENT', 'DATA_ADMIN', 'SALES')];
-const controlWrite = [managementAuth.authenticate, managementAuth.requireRoles('ADMIN', 'MANAGEMENT', 'DATA_ADMIN')];
+// The worker has no HTTP listener, so it mounts no pages, sessions or business routes.
+if (httpListenEnabled) mountWorkspace(createSessionAuth({ pool }));
 
-app.get('/api/automation/controls/:key', ...controlRead, async (req, res, next) => {
-  try { res.json(await automationControls.get(req.params.key)); } catch (error) { next(error); }
-});
-app.put('/api/automation/controls/:key', ...controlWrite, async (req, res, next) => {
-  try {
-    if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ code: 'AUTOMATION_ENABLED_REQUIRED' });
-    const event = await automationControls.set({
-      controlKey: req.params.key,
-      enabled: req.body.enabled,
-      settings: req.body.settings || {},
-      actor: req.managementUser.identity,
-      reason: String(req.body.reason || (req.body.enabled ? 'Enabled by management' : 'Paused by management')),
-      idempotencyKey: String(req.get('idempotency-key') || randomUUID())
-    });
-    audit('AUTOMATION_CONTROL_CHANGED', { control_key: event.control_key, enabled: event.enabled, actor: event.actor });
-    res.json(event);
-  } catch (error) { next(error); }
-});
+function mountWorkspace(auth) {
+  // Behind Docker's network and, for the public demo, the cloudflared tunnel.
+  app.set('trust proxy', 'loopback, uniquelocal');
+  app.use(auth.sessionMiddleware);
+  app.use(auth.sameOriginWrites);
+  app.use('/api/auth', auth.router);
 
-app.use('/api', createLeasingRouter({ pool, auth: managementAuth }));
-app.use('/media', managementAuth.authenticate, managementAuth.requireRoles('ADMIN', 'BOSS', 'LEASING'), express.static(mediaDir));
+  // Only the login page and the shared assets are reachable without signing in.
+  app.get('/login.html', (_req, res) => res.sendFile(path.join(publicDir, 'login.html')));
+  app.use('/assets', express.static(path.join(publicDir, 'assets')));
+  app.use('/vendor/chartjs', auth.requirePageSession, express.static(fileURLToPath(new URL('../node_modules/chart.js/dist', import.meta.url))));
+  app.use('/media', auth.requirePageSession, express.static(mediaDir));
 
-app.get('/api/companies/:id/score', async (req, res, next) => {
-  try {
-    const latest = await scoringService.getLatest(req.params.id);
-    if (!latest) return res.status(404).json({ error: 'Score not found', code: 'SCORE_NOT_FOUND' });
-    res.json(latest);
-  } catch (error) { next(error); }
-});
-app.get('/api/companies/:id/score-history', async (req, res, next) => {
-  try { res.json({ items: await scoringService.getHistory(req.params.id, { limit: Number(req.query.limit) || 50 }) }); }
-  catch (error) { next(error); }
-});
+  const signedIn = [auth.authenticate];
+  const controlWrite = [auth.authenticate, auth.requireRoles('ADMIN')];
+
+  app.get('/api/automation/controls/:key', ...signedIn, async (req, res, next) => {
+    try { res.json(await automationControls.get(req.params.key)); } catch (error) { next(error); }
+  });
+  app.put('/api/automation/controls/:key', ...controlWrite, async (req, res, next) => {
+    try {
+      if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ code: 'AUTOMATION_ENABLED_REQUIRED' });
+      const event = await automationControls.set({
+        controlKey: req.params.key,
+        enabled: req.body.enabled,
+        settings: req.body.settings || {},
+        actor: req.managementUser.identity,
+        reason: String(req.body.reason || (req.body.enabled ? 'Enabled by management' : 'Paused by management')),
+        idempotencyKey: String(req.get('idempotency-key') || randomUUID())
+      });
+      audit('AUTOMATION_CONTROL_CHANGED', { control_key: event.control_key, enabled: event.enabled, actor: event.actor });
+      res.json(event);
+    } catch (error) { next(error); }
+  });
+
+  app.use('/api', createLeasingRouter({ pool, auth }));
+
+  app.get('/api/overview', ...signedIn, async (req, res, next) => {
+    try { res.json(await getOverview(pool, { user: req.managementUser, sector: req.query.sector })); } catch (error) { next(error); }
+  });
+
+  app.get('/api/companies/:id/score', ...signedIn, async (req, res, next) => {
+    try {
+      const latest = await scoringService.getLatest(req.params.id);
+      if (!latest) return res.status(404).json({ error: 'Score not found', code: 'SCORE_NOT_FOUND' });
+      res.json(latest);
+    } catch (error) { next(error); }
+  });
+  app.get('/api/companies/:id/score-history', ...signedIn, async (req, res, next) => {
+    try { res.json({ items: await scoringService.getHistory(req.params.id, { limit: Number(req.query.limit) || 50 }) }); }
+    catch (error) { next(error); }
+  });
+
+  app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' }));
+  // Every page other than the login page needs a session.
+  app.use(auth.requirePageSession, express.static(publicDir));
+}
 
 app.use((error, _req, res, _next) => {
   console.error(error);

@@ -7,7 +7,9 @@ export function poolConfig(env = process.env) {
     port: Number(env.POSTGRES_PORT || 5432),
     database: env.POSTGRES_DB || 'leadgen',
     user: env.POSTGRES_USER || 'leadgen',
-    password: env.POSTGRES_PASSWORD
+    password: env.POSTGRES_PASSWORD,
+    // "Today", "this week" and "this month" follow local time.
+    options: `-c TimeZone=${env.TZ || 'Asia/Shanghai'}`
   };
 }
 
