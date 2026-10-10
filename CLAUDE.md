@@ -18,7 +18,7 @@
 
 ## 2. 已确认的决定（不要再问）
 
-- 技术栈保留：Node.js + Express、PostgreSQL 17、pg-boss 任务队列、n8n、Docker Compose、原生 HTML/CSS/JS + Tabler。发布中心的浏览器自动化用 Python + Playwright，作为独立 worker 进程，和主服务通过数据库任务表通信。
+- 技术栈保留：Node.js + Express、PostgreSQL 17、pg-boss 任务队列、Docker Compose、原生 HTML/CSS/JS + Tabler。演示版不启动 n8n（定时任务用 pg-boss）；需要可视化流程时再启用。发布中心的浏览器自动化用 Python + Playwright，作为独立 worker 进程，和主服务通过数据库任务表通信。
 - 代码远端：`https://github.com/minner-965/sq-system`（国内版专用，remote 名 `origin`）；原海外仓库改名为 remote `legacy`，只读，不再推送。
 - 开发主线：`main`（起点 = 原仓库 phase13 最新代码）。每个工作包在 `hz/wpXX-简称` 分支完成，验收后合并回 `main` 并推送到 sq-system。
 - 一个企业一份档案，三个板块各自建跟进记录。
