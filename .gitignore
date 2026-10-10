@@ -2,8 +2,6 @@
 .env
 .env.*
 !.env.example
-!.env.phase7-outreach.example
-!.env.phase7-api.example
 *.pem
 *.key
 *.p12
@@ -111,3 +109,7 @@ Thumbs.db
 /exa-live-check.mjs
 /patch-exa-provider.mjs
 
+
+# Publishing worker login state and uploaded media
+publisher/state/
+data/media/

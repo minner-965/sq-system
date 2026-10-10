@@ -1,4 +1,4 @@
-name: dpv-leadgen
+name: hz-leasing
 
 services:
   postgres:
@@ -18,249 +18,56 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d:ro
 
-  n8n:
-    image: n8nio/n8n:2.36.7
-    restart: unless-stopped
-    env_file:
-      - .env.phase2
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:${N8N_PORT}:5678"
-    environment:
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: ${POSTGRES_PORT}
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_HOST: ${N8N_HOST}
-      N8N_PORT: 5678
-      N8N_PROTOCOL: ${N8N_PROTOCOL}
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      N8N_PERSONALIZATION_ENABLED: "false"
-      N8N_SECURE_COOKIE: "false"
-      EXECUTIONS_DATA_PRUNE: "true"
-      EXECUTIONS_DATA_MAX_AGE: 168
-      AUTO_EVIDENCE_ENABLED: ${AUTO_EVIDENCE_ENABLED:-false}
-      RESEARCH_CREATION_MAINTENANCE: ${RESEARCH_CREATION_MAINTENANCE:-false}
-      AUTO_EVIDENCE_RECONCILE_MINUTES: ${AUTO_EVIDENCE_RECONCILE_MINUTES:-30}
-      N8N_AUTO_EVIDENCE_WORKFLOW_ACTIVE: ${N8N_AUTO_EVIDENCE_WORKFLOW_ACTIVE:-false}
-      AUTO_EVIDENCE_BATCH_SIZE: ${AUTO_EVIDENCE_BATCH_SIZE:-10}
-      AUTO_EVIDENCE_MARKET_CODES: ${AUTO_EVIDENCE_MARKET_CODES:-AE,MX}
-      AUTO_EVIDENCE_PRODUCT_PROFILES: ${AUTO_EVIDENCE_PRODUCT_PROFILES:-WOMENSWEAR,GENERAL_MERCHANDISE}
-      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
-      TZ: ${TZ}
-    volumes:
-      - n8n_data:/home/node/.n8n
-      - ./workflows:/files/workflows
-
-  phase7-runtime-init:
-    image: dpv-leadgen-demo-dashboard
-    user: "0:0"
-    restart: "no"
-    command: ["sh", "-lc", "mkdir -p /app/runtime/phase7/staging /app/runtime/phase7/exports && chown -R 1000:1000 /app/runtime/phase7"]
-    volumes:
-      - phase7_runtime:/app/runtime/phase7
-
-  demo-dashboard:
+  app:
     build:
       context: .
       dockerfile: services/demo-dashboard/Dockerfile
+    image: hz-leasing-app
     restart: unless-stopped
-    env_file:
-      - .env.phase2
-      - path: .env.phase7-api
-        required: false
-      - path: .env.phase7-outreach
-        required: false
-      - path: .env.phase12-manual-outreach
-        required: false
     depends_on:
       postgres:
         condition: service_healthy
-      phase7-runtime-init:
-        condition: service_completed_successfully
     ports:
       - "3000:3000"
     environment:
       PORT: 3000
+      PGBOSS_ENABLED: ${PGBOSS_ENABLED:-true}
       PGBOSS_PROCESS_JOBS: "false"
-      # Legacy manual API gate; Phase13 automatic delivery uses its separate policy.
-      OUTREACH_MANUAL_SEND_ONLY: "true"
-      GMAIL_API_ENABLED: "false"
-      GMAIL_INBOUND_SYNC_ENABLED: "false"
-      RESEND_USE_CASE: "DISABLED"
-      DPV_MANAGEMENT_API_TOKEN: ""
-      DPV_MANAGEMENT_API_ACTOR: ""
-      DPV_MANAGEMENT_API_ROLE: ""
-      DPV_MANAGEMENT_TOKEN_BINDINGS: ""
-      DPV_MANAGEMENT_CSRF_SECRET: ""
-      DATA_EXCHANGE_STAGING_DIR: /app/runtime/phase7/staging
-      DATA_EXCHANGE_EXPORT_DIR: /app/runtime/phase7/exports
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      DPV_MAINTENANCE_READ_ONLY: ${DPV_MAINTENANCE_READ_ONLY:-false}
+      DPV_WORKSPACE_ACTOR: ${DPV_WORKSPACE_ACTOR:-admin}
+      DPV_WORKSPACE_ROLE: ${DPV_WORKSPACE_ROLE:-MANAGEMENT}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
-      HUNTER_MODE: ${HUNTER_MODE:-FREE_FIRST}
-      HUNTER_API_ENDPOINT: ${HUNTER_API_ENDPOINT:-https://api.hunter.io/v2}
-      HUNTER_REQUEST_TIMEOUT_MS: ${HUNTER_REQUEST_TIMEOUT_MS:-12000}
-      MAX_HUNTER_CREDITS_PER_RUN_UNITS: ${MAX_HUNTER_CREDITS_PER_RUN_UNITS:-20000}
-      MAX_HUNTER_CREDITS_PER_BILLING_PERIOD_UNITS: ${MAX_HUNTER_CREDITS_PER_BILLING_PERIOD_UNITS:-20000}
-      MAX_HUNTER_CREDITS_PER_DAY_UNITS: ${MAX_HUNTER_CREDITS_PER_DAY_UNITS:-20000}
-      TAVILY_USAGE_POLICY: ${TAVILY_USAGE_POLICY:-PROVIDER_ACCOUNT_ONLY}
-      TAVILY_USAGE_ENDPOINT: ${TAVILY_USAGE_ENDPOINT:-https://api.tavily.com/usage}
-      TAVILY_USAGE_REFRESH_INTERVAL_MS: ${TAVILY_USAGE_REFRESH_INTERVAL_MS:-600000}
-      AUTO_EVIDENCE_ENABLED: ${AUTO_EVIDENCE_ENABLED:-false}
-      RESEARCH_CREATION_MAINTENANCE: ${RESEARCH_CREATION_MAINTENANCE:-false}
-      AUTO_EVIDENCE_RECONCILE_MINUTES: ${AUTO_EVIDENCE_RECONCILE_MINUTES:-30}
-      N8N_AUTO_EVIDENCE_WORKFLOW_ACTIVE: ${N8N_AUTO_EVIDENCE_WORKFLOW_ACTIVE:-false}
-      ORCHESTRATOR_QUEUED_THRESHOLD_MINUTES: ${ORCHESTRATOR_QUEUED_THRESHOLD_MINUTES:-10}
-      ORCHESTRATOR_RETRY_DELAY_MINUTES: ${ORCHESTRATOR_RETRY_DELAY_MINUTES:-5}
-      AUTO_EVIDENCE_BATCH_SIZE: ${AUTO_EVIDENCE_BATCH_SIZE:-10}
-      AUTO_EVIDENCE_SOURCE_TTL_DAYS: ${AUTO_EVIDENCE_SOURCE_TTL_DAYS:-90}
-      AUTO_EVIDENCE_STAGE_LEASE_MINUTES: ${AUTO_EVIDENCE_STAGE_LEASE_MINUTES:-15}
-      AUTO_EVIDENCE_HUNTER_ENABLED: ${AUTO_EVIDENCE_HUNTER_ENABLED:-true}
-      AUTO_EVIDENCE_TAVILY_ENABLED: ${AUTO_EVIDENCE_TAVILY_ENABLED:-true}
-      AUTO_EVIDENCE_OPERATOR_OVERRIDE_ENABLED: ${AUTO_EVIDENCE_OPERATOR_OVERRIDE_ENABLED:-false}
       TZ: ${TZ}
-    volumes:
-      - phase7_runtime:/app/runtime/phase7
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 5s
       timeout: 5s
       retries: 20
 
-  category-worker:
-    image: dpv-leadgen-demo-dashboard
+  worker:
+    image: hz-leasing-app
     restart: unless-stopped
-    env_file:
-      - .env.phase2
     depends_on:
       postgres:
         condition: service_healthy
-      phase7-runtime-init:
-        condition: service_completed_successfully
-    environment:
-      PORT: 3000
-      HTTP_LISTEN_ENABLED: "false"
-      PGBOSS_PROCESS_JOBS: "true"
-      PGBOSS_QUEUE_ALLOWLIST: "enrich-decision-makers,collect-category-buyer-evidence,classify-buyer-business-model,calculate-category-procurement-match,calculate-product-opportunities,recalculate-cooperation-v3,recalculate-business-opportunities,schedule-auto-evidence,discover-opportunity-evidence,normalize-opportunity-category,refresh-category-scope-match,find-profile-buyer,verify-profile-buyer-email,refresh-business-opportunity-v3,refresh-auto-evidence-exception,execute-research-job"
-      DATA_EXCHANGE_STAGING_DIR: /app/runtime/phase7/staging
-      DATA_EXCHANGE_EXPORT_DIR: /app/runtime/phase7/exports
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
-      HUNTER_MODE: ${HUNTER_MODE:-FREE_FIRST}
-      HUNTER_API_ENDPOINT: ${HUNTER_API_ENDPOINT:-https://api.hunter.io/v2}
-      HUNTER_REQUEST_TIMEOUT_MS: ${HUNTER_REQUEST_TIMEOUT_MS:-12000}
-      MAX_HUNTER_CREDITS_PER_RUN_UNITS: ${MAX_HUNTER_CREDITS_PER_RUN_UNITS:-20000}
-      MAX_HUNTER_CREDITS_PER_BILLING_PERIOD_UNITS: ${MAX_HUNTER_CREDITS_PER_BILLING_PERIOD_UNITS:-20000}
-      MAX_HUNTER_CREDITS_PER_DAY_UNITS: ${MAX_HUNTER_CREDITS_PER_DAY_UNITS:-20000}
-      TAVILY_USAGE_POLICY: ${TAVILY_USAGE_POLICY:-PROVIDER_ACCOUNT_ONLY}
-      TAVILY_USAGE_ENDPOINT: ${TAVILY_USAGE_ENDPOINT:-https://api.tavily.com/usage}
-      TAVILY_USAGE_REFRESH_INTERVAL_MS: ${TAVILY_USAGE_REFRESH_INTERVAL_MS:-600000}
-      AUTO_EVIDENCE_ENABLED: ${AUTO_EVIDENCE_ENABLED:-false}
-      AUTO_EVIDENCE_RECONCILE_MINUTES: ${AUTO_EVIDENCE_RECONCILE_MINUTES:-30}
-      AUTO_EVIDENCE_BATCH_SIZE: ${AUTO_EVIDENCE_BATCH_SIZE:-10}
-      AUTO_EVIDENCE_SOURCE_TTL_DAYS: ${AUTO_EVIDENCE_SOURCE_TTL_DAYS:-90}
-      AUTO_EVIDENCE_STAGE_LEASE_MINUTES: ${AUTO_EVIDENCE_STAGE_LEASE_MINUTES:-15}
-      AUTO_EVIDENCE_HUNTER_ENABLED: ${AUTO_EVIDENCE_HUNTER_ENABLED:-true}
-      AUTO_EVIDENCE_TAVILY_ENABLED: ${AUTO_EVIDENCE_TAVILY_ENABLED:-true}
-      AUTO_EVIDENCE_OPERATOR_OVERRIDE_ENABLED: ${AUTO_EVIDENCE_OPERATOR_OVERRIDE_ENABLED:-false}
-      TZ: ${TZ}
-    volumes:
-      - phase7_runtime:/app/runtime/phase7
-    healthcheck:
-      test: ["CMD", "node", "-e", "const fs=require('node:fs');const p='/tmp/dpv-phase5-worker-ready.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));if(!s.ready||!Array.isArray(s.queues)||!s.queues.length)process.exit(1);process.kill(Number(s.pid),0)"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  outreach-worker:
-    image: dpv-leadgen-demo-dashboard
-    restart: unless-stopped
-    env_file:
-      - path: .env.phase7-outreach
-        required: false
-    depends_on:
-      postgres:
+      app:
         condition: service_healthy
-      phase7-runtime-init:
-        condition: service_completed_successfully
     environment:
       PORT: 3000
       HTTP_LISTEN_ENABLED: "false"
       PGBOSS_ENABLED: "true"
       PGBOSS_PROCESS_JOBS: "true"
-      # Legacy send queues stay closed; Phase13 first-touch has independent policy gates.
-      OUTREACH_MANUAL_SEND_ONLY: "true"
-      OUTREACH_ENABLED: "false"
-      OUTREACH_SEND_SCOPE: "DISABLED"
-      LIVE_PROSPECT_SEND_APPROVED: "false"
-      GMAIL_API_ENABLED: "false"
-      GMAIL_INBOUND_SYNC_ENABLED: "false"
-      RESEND_USE_CASE: "DISABLED"
-      PGBOSS_QUEUE_ALLOWLIST: "verify-outreach-contact,send-outreach-email,send-auto-first-touch,send-controlled-application-email,controlled-application-inbound-sync,process-controlled-application-inbound,process-email-provider-event,process-inbound-message,classify-inbound-reply,create-sales-followup,sync-outreach-to-crm,inbound-email-sync,gmail-inbound-sync,reconcile-gmail-ambiguous-send"
-      DATA_EXCHANGE_STAGING_DIR: /app/runtime/phase7/staging
-      DATA_EXCHANGE_EXPORT_DIR: /app/runtime/phase7/exports
-      CRM_BASE_URL: ${CRM_BASE_URL:-}
-      CRM_API_KEY: ${CRM_API_KEY:-}
-      CRM_TIMEOUT_MS: ${CRM_TIMEOUT_MS:-10000}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
-      HUNTER_MODE: ${HUNTER_MODE:-FREE_FIRST}
-      HUNTER_API_ENDPOINT: ${HUNTER_API_ENDPOINT:-https://api.hunter.io/v2}
-      HUNTER_REQUEST_TIMEOUT_MS: ${HUNTER_REQUEST_TIMEOUT_MS:-12000}
-      MAX_HUNTER_CREDITS_PER_RUN_UNITS: ${MAX_HUNTER_CREDITS_PER_RUN_UNITS:-20000}
-      MAX_HUNTER_CREDITS_PER_BILLING_PERIOD_UNITS: ${MAX_HUNTER_CREDITS_PER_BILLING_PERIOD_UNITS:-20000}
-      MAX_HUNTER_CREDITS_PER_DAY_UNITS: ${MAX_HUNTER_CREDITS_PER_DAY_UNITS:-20000}
-      TZ: ${TZ}
-    volumes:
-      - phase7_runtime:/app/runtime/phase7
-    healthcheck:
-      test: ["CMD", "node", "-e", "const fs=require('node:fs');const p='/tmp/dpv-phase5-worker-ready.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));if(!s.ready||!Array.isArray(s.queues)||!s.queues.length)process.exit(1);process.kill(Number(s.pid),0)"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  data-worker:
-    image: dpv-leadgen-demo-dashboard
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      phase7-runtime-init:
-        condition: service_completed_successfully
-    environment:
-      PORT: 3000
-      HTTP_LISTEN_ENABLED: "false"
-      PGBOSS_PROCESS_JOBS: "true"
-      PGBOSS_QUEUE_ALLOWLIST: "discover-shared-import-files,commit-reference-import,export-business-data,recalculate-after-import"
-      DATA_EXCHANGE_STAGING_DIR: /app/runtime/phase7/staging
-      DATA_EXCHANGE_EXPORT_DIR: /app/runtime/phase7/exports
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: ${TZ}
-    volumes:
-      - phase7_runtime:/app/runtime/phase7
     healthcheck:
       test: ["CMD", "node", "-e", "const fs=require('node:fs');const p='/tmp/dpv-phase5-worker-ready.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));if(!s.ready||!Array.isArray(s.queues)||!s.queues.length)process.exit(1);process.kill(Number(s.pid),0)"]
       interval: 5s
@@ -268,6 +75,4 @@ services:
       retries: 20
 
 volumes:
-  n8n_data:
   postgres_data:
-  phase7_runtime:
