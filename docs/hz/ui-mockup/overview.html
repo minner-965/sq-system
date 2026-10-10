@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作台总览 · 恒兆广场招商系统</title>
+<style>
+:root{
+  --bg:#F3F5F8; --surface:#FFFFFF; --line:#E3E7ED; --line-soft:#EEF1F5;
+  --text:#1E2633; --text-2:#5B6574; --text-3:#8A93A1;
+  --side:#1B2230; --side-2:#252D3D; --side-text:#A9B2C1;
+  --primary:#2563EB; --primary-soft:#E8EFFD;
+  --ok:#1F8A5B; --ok-soft:#E6F4EC; --warn:#B7791F; --warn-soft:#FBF3E4; --bad:#C2413A; --bad-soft:#FBEAE9;
+  --s1:#2563EB; --s2:#5B8DEF; --s3:#9DB9F3;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC","WenQuanYi Zen Hei",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;display:flex;min-height:100vh}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer}
+/* sidebar */
+.side{width:220px;background:var(--side);color:var(--side-text);flex-shrink:0;display:flex;flex-direction:column}
+.brand{height:60px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid #2A3242}
+.brand-mark{width:28px;height:28px;border-radius:6px;background:var(--primary);color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.brand b{color:#fff;font-size:15px;font-weight:600;letter-spacing:.5px}
+.nav{padding:16px 12px;flex:1}
+.nav h6{font-size:12px;color:#6F7A8C;font-weight:500;padding:14px 10px 6px}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:6px;font-size:14px}
+.nav a:hover{background:var(--side-2);color:#fff}
+.nav a.on{background:var(--side-2);color:#fff;box-shadow:inset 3px 0 0 var(--primary)}
+.nav svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;flex-shrink:0}
+.nav .count{margin-left:auto;font-size:12px;background:#323B4E;color:#D5DBE5;border-radius:10px;padding:0 7px}
+.me{border-top:1px solid #2A3242;padding:14px 20px;display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;background:#34405A;color:#fff;display:grid;place-items:center;font-size:13px}
+.me p{font-size:13px;color:#fff}.me small{font-size:12px;color:#7D8798}
+/* main */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{height:60px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;padding:0 28px}
+.search{flex:0 1 360px;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:6px;padding:7px 12px;color:var(--text-3);font-size:13px;background:#FAFBFC}
+.search svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-left:auto}
+.seg button{border:0;background:#fff;padding:6px 14px;font-size:13px;color:var(--text-2);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--primary-soft);color:var(--primary);font-weight:500}
+.bell{position:relative;width:34px;height:34px;display:grid;place-items:center;color:var(--text-2);border-radius:6px}
+.bell svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.bell i{position:absolute;top:7px;right:8px;width:7px;height:7px;background:var(--bad);border-radius:50%;border:1.5px solid #fff}
+.content{padding:24px 28px 40px;max-width:1360px;width:100%;margin:0 auto}
+.head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.head h1{font-size:22px;font-weight:600}
+.head p{color:var(--text-3);font-size:13px;margin-top:2px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 14px;font-size:13px;color:var(--text)}
+.btn:hover{border-color:#C8CFD9}
+.btn.pri{background:var(--primary);border-color:var(--primary);color:#fff}
+.btns{display:flex;gap:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+.kpi{padding:16px 18px}
+.kpi .lab{color:var(--text-2);font-size:13px}
+.kpi .val{font-size:28px;font-weight:600;margin:6px 0 8px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.kpi .val small{font-size:14px;color:var(--text-3);font-weight:400;margin-left:4px}
+.kpi .sub{font-size:12px;color:var(--text-3);display:flex;gap:10px;flex-wrap:wrap}
+.tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:4px;background:#F1F3F6;color:var(--text-2)}
+.up{color:var(--ok)}
+.kpi.attn{border-left:3px solid var(--warn)}
+.bar{height:6px;background:var(--line-soft);border-radius:3px;overflow:hidden;margin-top:4px}
+.bar span{display:block;height:100%;background:var(--primary)}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px}
+.grid2b{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ph{display:flex;justify-content:space-between;align-items:center;padding:16px 20px 0}
+.ph h3{font-size:15px;font-weight:600}
+.ph p{font-size:12px;color:var(--text-3)}
+.ph a{font-size:13px;color:var(--primary)}
+.pb{padding:16px 20px 20px}
+/* funnel */
+.fun{display:flex;flex-direction:column;gap:14px}
+.fun-row{display:grid;grid-template-columns:96px 1fr 64px 70px;align-items:center;gap:12px}
+.fun-row .n{font-size:13px;color:var(--text)}
+.fun-row .v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.fun-row .r{text-align:right;font-size:12px;color:var(--text-3)}
+.fun-row .track{height:22px;background:var(--line-soft);border-radius:4px;overflow:hidden}
+.fun-row .track span{display:block;height:100%;background:var(--primary)}
+.fun-row:nth-child(1) .track span{background:#BFD1F8}
+.fun-row:nth-child(2) .track span{background:#93B2F2}
+.fun-row:nth-child(3) .track span{background:#5F8DEB}
+.fun-row:nth-child(4) .track span{background:#3A73E8}
+.fun-row:nth-child(5) .track span{background:#2563EB}
+.fun-row:nth-child(6) .track span{background:var(--ok)}
+.fun-foot{display:flex;gap:24px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft);font-size:12px;color:var(--text-3)}
+.fun-foot b{color:var(--text);font-size:13px;font-weight:600;margin-left:6px}
+/* donut */
+.donut-wrap{display:flex;flex-direction:column;align-items:center;gap:16px}
+.donut{position:relative;width:180px;height:180px}
+.donut .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.donut .mid b{font-size:26px;font-weight:600}
+.donut .mid span{font-size:12px;color:var(--text-3)}
+.legend{width:100%;display:flex;flex-direction:column;gap:8px}
+.legend div{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-2)}
+.legend i{width:10px;height:10px;border-radius:2px}
+.legend b{margin-left:auto;color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+/* tasks */
+.task{padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.task:last-of-type{border-bottom:0}
+.task .t{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+.task .t span:last-child{color:var(--text-3);font-size:12px}
+.status{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:1px 8px;border-radius:4px}
+.st-ok{background:var(--ok-soft);color:var(--ok)}.st-warn{background:var(--warn-soft);color:var(--warn)}.st-wait{background:#F1F3F6;color:var(--text-2)}.st-bad{background:var(--bad-soft);color:var(--bad)}
+.plat{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft)}
+/* leads */
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;font-weight:500;color:var(--text-3);text-align:left;padding:8px 20px;background:#FAFBFC;border-bottom:1px solid var(--line)}
+td{padding:11px 20px;border-bottom:1px solid var(--line-soft);font-size:13px;vertical-align:top}
+tr:last-child td{border-bottom:0}
+td .co{font-weight:500}
+td .meta{font-size:12px;color:var(--text-3);margin-top:2px}
+.lk{color:var(--primary);font-size:13px}
+.mock{font-size:12px;color:var(--warn);background:var(--warn-soft);border:1px solid #F0DFC0;border-radius:4px;padding:2px 8px}
+/* mobile */
+.mbar{display:none}
+@media (max-width:1100px){.grid4{grid-template-columns:repeat(2,1fr)}.grid2,.grid2b{grid-template-columns:1fr}}
+@media (max-width:760px){
+  body{display:block}
+  .side{display:none}
+  .top{padding:0 16px;height:52px}
+  .search{display:none}
+  .seg{margin-left:0;flex:1}.seg button{flex:1;padding:6px 4px}
+  .content{padding:16px 16px 80px}
+  .head h1{font-size:19px}
+  .head .btns .btn:not(.pri){display:none}
+  .grid4{gap:10px}
+  .kpi{padding:12px 14px}.kpi .val{font-size:22px}
+  .fun-row{grid-template-columns:72px 1fr 44px;gap:8px}.fun-row .r{display:none}
+  th:nth-child(3),td:nth-child(3){display:none}
+  th,td{padding-left:14px;padding-right:14px}
+  .mbar{display:flex;position:fixed;bottom:0;left:0;right:0;height:60px;background:#fff;border-top:1px solid var(--line);justify-content:space-around;align-items:center;font-size:11px;color:var(--text-2)}
+  .mbar a{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:56px;min-height:44px;justify-content:center}
+  .mbar a.on{color:var(--primary)}
+  .mbar svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8}
+}
+</style>
+</head>
+<body>
+
+<aside class="side">
+  <div class="brand"><div class="brand-mark">恒</div><b>恒兆广场招商系统</b></div>
+  <nav class="nav">
+    <a class="on" href="#"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>工作台总览</a>
+    <h6>招商</h6>
+    <a href="#"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>企业发现<span class="count">36</span></a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 20v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>招商客户</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></svg>房源与服务</a>
+    <h6>内容</h6>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M4 4h16v12H5.2L4 17.5z"/><path d="M8 9h8M8 12h5"/></svg>内容发布<span class="count">4</span></a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 20V9"/></svg>留资线索</a>
+    <h6>管理</h6>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>报表</a>
+    <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>系统设置</a>
+  </nav>
+  <div class="me"><div class="avatar">方</div><div><p>管理员</p><small>全部板块</small></div></div>
+</aside>
+
+<div class="main">
+  <header class="top">
+    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>搜索企业、联系人、房源编号</div>
+    <div class="seg" role="tablist">
+      <button class="on">全部</button><button>商铺写字楼</button><button>酒店公寓</button><button>餐饮</button>
+    </div>
+    <a class="bell" href="#" aria-label="通知"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><i></i></a>
+  </header>
+
+  <main class="content">
+    <div class="head">
+      <div>
+        <h1>工作台总览 <span class="mock">样稿数据</span></h1>
+        <p>2026年10月10日 · 数据更新于 11:30</p>
+      </div>
+      <div class="btns"><button class="btn">导出报表</button><button class="btn pri">新建跟进</button></div>
+    </div>
+
+    <section class="grid4">
+      <div class="card kpi">
+        <div class="lab">在租房源</div>
+        <div class="val">55<small>套</small></div>
+        <div class="sub"><span class="tag">商铺 10</span><span class="tag">写字楼 45</span></div>
+      </div>
+      <div class="card kpi">
+        <div class="lab">本周新发现企业</div>
+        <div class="val">36<small>家</small></div>
+        <div class="sub"><span class="up">较上周 +8</span><span>其中待复核 21</span></div>
+      </div>
+      <div class="card kpi">
+        <div class="lab">本月看场</div>
+        <div class="val">12<small>次</small></div>
+        <div class="sub"><span>目标 20 次</span></div>
+        <div class="bar"><span style="width:60%"></span></div>
+      </div>
+      <div class="card kpi attn">
+        <div class="lab">今日待跟进</div>
+        <div class="val">9<small>条</small></div>
+        <div class="sub"><span style="color:var(--warn)">3 条已逾期</span></div>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <div class="card">
+        <div class="ph"><div><h3>招商漏斗</h3><p>近 30 天 · 全部板块</p></div><a href="#">查看客户</a></div>
+        <div class="pb">
+          <div class="fun">
+            <div class="fun-row"><span class="n">新发现企业</span><div class="track"><span style="width:100%"></span></div><span class="v">148</span><span class="r">—</span></div>
+            <div class="fun-row"><span class="n">复核通过</span><div class="track"><span style="width:58%"></span></div><span class="v">86</span><span class="r">58%</span></div>
+            <div class="fun-row"><span class="n">已联系</span><div class="track"><span style="width:36%"></span></div><span class="v">53</span><span class="r">62%</span></div>
+            <div class="fun-row"><span class="n">看场</span><div class="track"><span style="width:12%"></span></div><span class="v">18</span><span class="r">34%</span></div>
+            <div class="fun-row"><span class="n">谈判中</span><div class="track"><span style="width:5%"></span></div><span class="v">7</span><span class="r">39%</span></div>
+            <div class="fun-row"><span class="n">签约</span><div class="track"><span style="width:2%"></span></div><span class="v">3</span><span class="r">43%</span></div>
+          </div>
+          <div class="fun-foot"><span>签约面积<b>486 ㎡</b></span><span>平均成交周期<b>23 天</b></span><span>主要放弃原因<b>价格</b></span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ph"><div><h3>客户板块分布</h3><p>跟进中的企业</p></div></div>
+        <div class="pb donut-wrap">
+          <div class="donut">
+            <svg viewBox="0 0 42 42" width="180" height="180">
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="#EEF1F5" stroke-width="5"/>
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="#2563EB" stroke-width="5" stroke-dasharray="56 44" stroke-dashoffset="25"/>
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="#5B8DEF" stroke-width="5" stroke-dasharray="26 74" stroke-dashoffset="69"/>
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="#9DB9F3" stroke-width="5" stroke-dasharray="18 82" stroke-dashoffset="43"/>
+            </svg>
+            <div class="mid"><b>86</b><span>家企业</span></div>
+          </div>
+          <div class="legend">
+            <div><i style="background:#2563EB"></i>商铺写字楼<b>48</b></div>
+            <div><i style="background:#5B8DEF"></i>酒店公寓<b>22</b></div>
+            <div><i style="background:#9DB9F3"></i>餐饮团餐<b>16</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid2b">
+      <div class="card">
+        <div class="ph"><div><h3>内容发布</h3><p>本周计划 8 条</p></div><a href="#">去发布</a></div>
+        <div class="pb">
+          <div class="task"><div class="t"><span>宜尚酒店 · 演唱会周末住宿</span><span>抖音 · 今天 18:00</span></div><span class="status st-warn">待确认</span></div>
+          <div class="task"><div class="t"><span>1 栋 18 层 492㎡ 精装办公室</span><span>抖音 · 今天 10:12</span></div><span class="status st-ok">已发布</span></div>
+          <div class="task"><div class="t"><span>鱼仔店 · 企业午市团餐</span><span>抖音 · 明天 11:00</span></div><span class="status st-wait">待发布</span></div>
+          <div class="task"><div class="t"><span>B 栋临街商铺招租</span><span>抖音 · 昨天 16:40</span></div><span class="status st-bad">发布失败 · 需重新登录</span></div>
+          <div class="plat"><span class="tag">抖音 已连接</span><span class="tag">小红书 未接入</span><span class="tag">视频号 未接入</span><span class="tag">朋友圈 未接入</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ph" style="padding-bottom:12px"><div><h3>待跟进</h3><p>按下次跟进时间排序</p></div><a href="#">全部 9 条</a></div>
+        <table>
+          <thead><tr><th>企业</th><th>板块 · 阶段</th><th>负责人</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><div class="co">广州某科技有限公司</div><div class="meta">新设企业 · 距离 2.1km</div></td><td>写字楼 · 待联系<div class="meta" style="color:var(--bad)">逾期 1 天</div></td><td>陈经理</td><td><a class="lk" href="#">跟进</a></td></tr>
+            <tr><td><div class="co">黄埔某生物医药公司</div><div class="meta">扩招 30 人 · 距离 4.6km</div></td><td>写字楼 · 看场<div class="meta">今天 15:00</div></td><td>李经理</td><td><a class="lk" href="#">跟进</a></td></tr>
+            <tr><td><div class="co">某新能源有限公司</div><div class="meta">周边企业 · 员工 200+</div></td><td>餐饮 · 已联系<div class="meta">今天</div></td><td>王经理</td><td><a class="lk" href="#">跟进</a></td></tr>
+            <tr><td><div class="co">某会展服务公司</div><div class="meta">演出季差旅需求</div></td><td>酒店 · 谈判中<div class="meta">明天</div></td><td>陈经理</td><td><a class="lk" href="#">跟进</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav class="mbar">
+  <a class="on" href="#"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>总览</a>
+  <a href="#"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>发现</a>
+  <a href="#"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>客户</a>
+  <a href="#"><svg viewBox="0 0 24 24"><path d="M4 4h16v12H5.2L4 17.5z"/></svg>发布</a>
+  <a href="#"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>更多</a>
+</nav>
+</body>
+</html>
