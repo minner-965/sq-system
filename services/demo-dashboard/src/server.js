@@ -1,6 +1,8 @@
 import express from 'express';
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateDetailId } from './httpIdValidation.js';
 import { maintenanceReadOnly, maintenanceWriteGuard } from './maintenanceMode.js';
 import { createTelemetryService, instrumentPgPool } from './observability/telemetry.js';
@@ -8,6 +10,9 @@ import { createPhase5Queue, PHASE5_QUEUES } from './jobs/phase5Queue.js';
 import { ScoringService } from './scoring/scoringService.js';
 import { createManagementAuth } from './auth/managementAuth.js';
 import { AutomationControlService } from './automation/AutomationControlService.js';
+import { poolConfig } from './db/pool.js';
+import { runMigrations } from './db/migrator.js';
+import { createLeasingRouter } from './leasing/leasingRoutes.js';
 
 const { Pool } = pg;
 const app = express();
@@ -24,14 +29,12 @@ const telemetry = createTelemetryService({
   serviceName: 'hz-leasing-app'
 });
 const pool = new Pool({
-  host: process.env.POSTGRES_HOST || 'postgres',
-  port: Number(process.env.POSTGRES_PORT || 5432),
-  database: process.env.POSTGRES_DB || 'leadgen',
-  user: process.env.POSTGRES_USER || 'leadgen',
-  password: process.env.POSTGRES_PASSWORD,
+  ...poolConfig(),
   ...(maintenanceMode ? { options: '-c default_transaction_read_only=on' } : {}),
 });
 instrumentPgPool(pool, telemetry);
+
+const mediaDir = process.env.HZ_MEDIA_DIR || path.join(process.env.DPV_PROJECT_ROOT || fileURLToPath(new URL('../../..', import.meta.url)), 'data', 'media');
 
 const scoringService = new ScoringService({ pool });
 const automationControls = new AutomationControlService({ pool });
@@ -76,8 +79,8 @@ app.get('/api/health', async (_req, res) => {
   } catch (error) { res.status(503).json({ status: 'error', error: error.message }); }
 });
 
-const controlRead = [managementAuth.authenticate, managementAuth.requireRoles('MANAGEMENT', 'DATA_ADMIN', 'SALES')];
-const controlWrite = [managementAuth.authenticate, managementAuth.requireRoles('MANAGEMENT', 'DATA_ADMIN')];
+const controlRead = [managementAuth.authenticate, managementAuth.requireRoles('ADMIN', 'BOSS', 'LEASING', 'MANAGEMENT', 'DATA_ADMIN', 'SALES')];
+const controlWrite = [managementAuth.authenticate, managementAuth.requireRoles('ADMIN', 'MANAGEMENT', 'DATA_ADMIN')];
 
 app.get('/api/automation/controls/:key', ...controlRead, async (req, res, next) => {
   try { res.json(await automationControls.get(req.params.key)); } catch (error) { next(error); }
@@ -97,6 +100,9 @@ app.put('/api/automation/controls/:key', ...controlWrite, async (req, res, next)
     res.json(event);
   } catch (error) { next(error); }
 });
+
+app.use('/api', createLeasingRouter({ pool, auth: managementAuth }));
+app.use('/media', managementAuth.authenticate, managementAuth.requireRoles('ADMIN', 'BOSS', 'LEASING'), express.static(mediaDir));
 
 app.get('/api/companies/:id/score', async (req, res, next) => {
   try {
@@ -133,6 +139,11 @@ async function start() {
     const stop = async () => { readOnlyServer.close(); await telemetry.shutdown(); await pool.end(); process.exit(0); };
     process.once('SIGTERM', stop); process.once('SIGINT', stop);
     return;
+  }
+  // The worker starts after the app is healthy, so only the app applies migrations.
+  if (httpListenEnabled && !/^(0|false|no|off)$/i.test(process.env.DB_MIGRATE_ON_START || 'true')) {
+    const result = await runMigrations({ pool, log: line => audit('migration', { detail: line }) });
+    audit('migrations_checked', { total: result.total, applied: result.applied.length });
   }
   await jobQueue.start();
   const server = httpListenEnabled
