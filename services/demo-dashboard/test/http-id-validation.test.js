@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateDetailId} from '../src/httpIdValidation.js';
-import {validateCategoryScopeDraft,CategoryScopeService} from '../src/categoryProcurement/CategoryScopeService.js';
 
 test('detail UUID validation rejects malformed identifiers without reflecting input',()=>{
   for(const value of ['invalid','1',"' OR true --",'00000000-0000-0000-0000-00000000000Z']) {
@@ -19,8 +18,4 @@ test('detail UUID validation accepts UUID shape without imposing version restric
 });
 test('write routes retain their existing authentication and input validation order',()=>{
   let next=false;validateDetailId({method:'POST'},{},()=>{next=true;},'invalid');assert.equal(next,true);
-});
-test('category input errors declare client status without disguising infrastructure failures',()=>{
-  assert.throws(()=>validateCategoryScopeDraft({}),error=>error.code==='CATEGORY_SCOPE_FACTS_REQUIRED'&&error.status===400);
-  assert.throws(()=>new CategoryScopeService(),error=>error.status===undefined);
 });

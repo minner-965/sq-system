@@ -104,7 +104,7 @@ test('queue adapter registers bounded retry and dead-letter policies', async () 
   assert.equal(await queue.enqueue(PHASE5_QUEUES.SCORE_COMPANY, { company_id: 'company-1' }), 'job-1');
   assert.deepEqual(await queue.enqueueFlow([
     { ref: 'score', name: PHASE5_QUEUES.SCORE_COMPANY, data: { company_id: 'company-1' } },
-    { ref: 'match', name: PHASE5_QUEUES.RECALCULATE_CUSTOMER_MATCH, data: { company_id: 'company-1' }, dependsOn: ['score'] }
+    { ref: 'match', name: PHASE5_QUEUES.REPLAY_RULE_VERSION, data: { company_id: 'company-1' }, dependsOn: ['score'] }
   ]), { score: 'job-score', match: 'job-match' });
   assert.equal((await queue.waitFor(PHASE5_QUEUES.SCORE_COMPANY, 'job-1')).state, 'completed');
   await queue.stop();

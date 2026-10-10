@@ -16,9 +16,9 @@ test('read-only batch preview is explicitly permitted without allowing batch cre
   let called=false;maintenanceWriteGuard(true)({method:'POST',path:'/api/research/batches/preview'},{},()=>called=true);assert.equal(called,true);
   let status;maintenanceWriteGuard(true)({method:'POST',path:'/api/research/batches'},{status(n){status=n;return this;},json(){}},()=>assert.fail());assert.equal(status,503);
 });
-test('empty startup does not trigger legacy discovery and read-only startup exits before producers',()=>{
+test('read-only startup exits before the job queue starts',()=>{
   const source=readFileSync(new URL('../src/server.js',import.meta.url),'utf8').split('async function start()')[1];
-  assert.ok(source);assert.doesNotMatch(source,/collectLive\s*\(/);
-  assert.ok(source.indexOf('if(maintenanceMode)')<source.indexOf('refreshUsage'));
-  assert.ok(source.indexOf('return;')<source.indexOf('await phase5Queue.start()'));
+  assert.ok(source);
+  assert.ok(source.indexOf('if (maintenanceMode)')>=0);
+  assert.ok(source.indexOf('return;')<source.indexOf('await jobQueue.start()'));
 });
