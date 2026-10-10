@@ -1,29 +1,40 @@
-# DPV International Sales Workspace
+# 恒兆广场招商与获客系统
 
-DPV's overseas company research, category-based opportunity assessment, contact verification, email review and sales follow-up workspace.
+服务广州黄埔区恒兆广场的招商与获客系统，覆盖商铺写字楼、酒店公寓、自营餐饮三个板块，另有内容发布中心。
 
-## Current operating documents
+- 项目规则：[`CLAUDE.md`](CLAUDE.md)
+- 分阶段执行计划：[`docs/hz/执行计划_V1.2.md`](docs/hz/执行计划_V1.2.md)
+- 当前进度：[`docs/hz/进度.md`](docs/hz/进度.md)
+- 界面样稿：[`docs/hz/ui-mockup/overview.html`](docs/hz/ui-mockup/overview.html)
 
-- [Current project status](docs/CURRENT_PROJECT_STATUS.md): verified execution state and current work boundary.
-- [Operations runbook](docs/OPERATIONS_RUNBOOK.md): startup, maintenance and restoration checks.
-- [Business scope](docs/rules/PHASE13_BUSINESS_SCOPE.md), [opportunity pool](docs/rules/PHASE13_OPPORTUNITY_POOL_RULES.md) and [contact readiness](docs/rules/PHASE13_CONTACT_READINESS_RULES.md): independent business rules.
-- [Search providers](docs/SEARCH_PROVIDER.md): provider configuration.
-- [Model runtime](docs/LLM_RUNTIME_ACTUAL_STATE.md): implemented capabilities versus planned integrations.
-- [UI system V3](docs/UI_SYSTEM_V3.md): shared frontend conventions.
-- [Version history](docs/VERSION_CHANGELOG.md): release records.
+## 本地启动
 
-Opportunity admission, contact readiness and email eligibility are separate states. A category-level match does not require an exact internal SKU. Email execution remains subject to persisted policy, address verification, approval, suppression and deduplication checks.
+需要 Docker Desktop、Node.js 24。
 
-## Development
+```bash
+cp .env.example .env        # 填写数据库密码
+docker compose up -d postgres app
+```
 
-The application uses the existing HTML/CSS/JavaScript frontend, Express services, PostgreSQL, transactional work queues and configured integrations. Read current status and the operations runbook before starting workers: startup may resume persisted jobs and automation.
+打开 http://localhost:3000 。健康检查：`/api/health`。
 
-Workspace: <http://localhost:3000>. Local setup guidance: [Company computer setup](docs/COMPANY_PC_SETUP.md).
+后台任务进程按需启动：`docker compose up -d worker`。
 
-## Historical records
+## 测试
 
-[docs/history/](docs/history/) retains acceptance results, prior phase assessments and superseded visual references. These record the behavior at the stated date, not the current operating contract. Original proposals and document-generation assets are historical reference material. Current runtime must not use historical reports as policy input.
+```bash
+cd services/demo-dashboard
+npm ci
+npm test
+```
 
-## Security
+## 目录
 
-Keep credentials, completed environment files, customer exports and database backups outside Git. See [SECURITY.md](SECURITY.md). Shared source folders remain read-only.
+| 路径 | 内容 |
+|---|---|
+| `services/demo-dashboard/` | 应用服务（Express）、页面、测试 |
+| `database/migrations/` | 数据库迁移，只增不改 |
+| `rules/` | 评分规则 |
+| `config/search/` | 检索词与域名策略 |
+| `docs/hz/` | 方案、计划、进度、样稿 |
+| `docs/history/` | 原海外版的历史文档，仅供参考 |

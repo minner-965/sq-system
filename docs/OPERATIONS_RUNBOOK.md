@@ -1,21 +1,30 @@
-# Operations runbook
+# 运行手册
 
-## Read-only inspection
+## 启动与停止
 
-Run `node scripts/generate-current-project-status.mjs` and `node scripts/verify-current-project-status.mjs --database`. These read PostgreSQL and container metadata, not providers. Read `CURRENT_RUNTIME_CONTRACT.md` before changing execution controls.
+```bash
+docker compose up -d postgres app     # 数据库 + 应用
+docker compose up -d worker           # 后台任务（评分、导出），需要时再开
+docker compose ps                     # 查看状态
+docker compose down                   # 停止，保留数据
+```
 
-## Maintenance
+应用地址 http://localhost:3000 ，健康检查 `/api/health`。
 
-`node scripts/cleanup-maintenance-guard.mjs --apply` pauses execution services while preserving PostgreSQL and stored intent. Without `--apply`, it checks this condition. Preserve database volumes, applied migrations, original backups and user working-tree changes.
+## 配置
 
-## Credentials and providers
+`.env` 由 `.env.example` 复制后填写，不进 Git。修改 `.env` 后要重新创建容器才生效：`docker compose up -d app`。
 
-Keep credentials in ignored local environment files. Reports should expose only presence/status, never values. Recreating a service loads changed environment; restarting an existing container alone may retain old settings. Verify actual stored provider order, request budget and pending work before releasing research execution. Unknown cost is not free. One smoke request does not authorize an entire historical backlog.
+## 只读维护
 
-## Staged restoration
+`.env` 里设 `DPV_MAINTENANCE_READ_ONLY=true` 并重建 `app` 容器：页面可看，所有写操作返回 503，后台任务不启动。
 
-Validate isolated migration replay, current images/source, dependency security, pending outbound reservations and service health first. Dashboard, category-worker, data-worker, outreach-worker and n8n have separate responsibilities. Starting workers with stored automation enabled can cause external actions; do not start all services blindly during acceptance. Record remaining pauses accurately, and preserve separate follow-up/manual-channel controls.
+## 数据库
 
-## Release
+- 迁移文件在 `database/migrations/`，只新增，不修改已有文件。
+- 目前迁移只在首次建库（空数据卷）时由 PostgreSQL 容器按文件名顺序执行。已有数据库应用新迁移的执行器在 WP02 补上。
+- `docker compose down -v` 会删除数据卷，执行前先确认数据已备份或不需要。
 
-Scan secrets and inspect staged paths. Commit intended changes, verify remote identity/privacy, push the exact branch without force, then compare remote and local hashes. Preserve existing tags; use an accepted tag only when its acceptance conditions hold. Confidential snapshots stay in ignored local artifacts.
+## 发布
+
+提交前检查没有把 `.env`、登录状态、数据库备份、客户导出加入暂存区。推送到 `origin`（sq-system），不强制推送。
