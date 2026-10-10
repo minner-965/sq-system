@@ -3,26 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>恒兆广场招商与获客系统</title>
-  <style>
-    html, body { height: 100%; margin: 0; }
-    body {
-      display: flex; align-items: center; justify-content: center;
-      background: #f3f4f6; color: #111827;
-      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-    }
-    main {
-      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
-      padding: 32px 40px; max-width: 420px; margin: 16px;
-    }
-    h1 { font-size: 20px; margin: 0 0 12px; }
-    p { font-size: 14px; line-height: 1.7; color: #4b5563; margin: 0; }
-  </style>
+  <title>工作台总览 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
-  <main>
-    <h1>恒兆广场招商与获客系统</h1>
-    <p>系统页面正在建设中，暂未开放使用。</p>
-  </main>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>工作台总览</h1>
+          <p id="updated">&nbsp;</p>
+        </div>
+        <div class="btns">
+          <button class="btn pri" type="button" data-requires="write" disabled title="招商客户模块开通后可用">新建跟进</button>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+
+      <section class="grid4 loading" id="kpis" aria-label="关键数字">
+        <div class="card kpi" id="kpi-properties"><div class="lab">在租房源</div><div class="val">0<small>套</small></div><div class="sub">&nbsp;</div></div>
+        <div class="card kpi" id="kpi-companies"><div class="lab">本周新发现企业</div><div class="val">0<small>家</small></div><div class="sub">&nbsp;</div></div>
+        <div class="card kpi" id="kpi-viewings"><div class="lab">本月看场</div><div class="val">0<small>次</small></div><div class="sub">&nbsp;</div></div>
+        <div class="card kpi" id="kpi-follow"><div class="lab">今日待跟进</div><div class="val">0<small>条</small></div><div class="sub">&nbsp;</div></div>
+      </section>
+
+      <section class="grid2">
+        <div class="card">
+          <div class="ph"><div><h3>招商漏斗</h3><p id="funnel-scope">&nbsp;</p></div></div>
+          <div class="pb" id="funnel"><div class="state">正在加载</div></div>
+        </div>
+        <div class="card">
+          <div class="ph"><div><h3>客户板块分布</h3><p>跟进中的企业</p></div></div>
+          <div class="pb" id="distribution"><div class="state">正在加载</div></div>
+        </div>
+      </section>
+
+      <section class="grid2b">
+        <div class="card">
+          <div class="ph"><div><h3>内容发布</h3><p>发布任务进度</p></div></div>
+          <div class="pb" id="publishing"><div class="state">正在加载</div></div>
+        </div>
+        <div class="card">
+          <div class="ph"><div><h3>待跟进</h3><p>按下次跟进时间排序</p></div></div>
+          <div class="table-wrap" id="follow-ups"><div class="state">正在加载</div></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script src="/vendor/chartjs/chart.umd.js"></script>
+  <script type="module" src="/assets/overview.js"></script>
 </body>
 </html>

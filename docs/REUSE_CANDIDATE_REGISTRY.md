@@ -22,6 +22,8 @@
 | validator | 13.15.35 | MIT | 输入校验 |
 | @opentelemetry/api、sdk-trace-base | 1.9.1 / 2.10.0 | Apache-2.0 | 本地追踪 |
 | umzug | 3.8.3 | MIT | 数据库迁移执行（WP02 引入，见下） |
+| express-session、connect-pg-simple、express-rate-limit | 1.19.0 / 10.0.0 / 8.7.0 | MIT | 账号登录（WP03 引入，见下） |
+| chart.js | 4.5.1 | MIT | 图表（WP03 引入，见下） |
 | pdf-to-img（仅开发依赖） | 6.3.0 | MIT | 房源导入时把平面图 PDF 拆成图片；不进运行镜像 |
 
 WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
@@ -30,12 +32,23 @@ WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
 
 | 方向 | 工作包 | 候选 | 状态 |
 |---|---|---|---|
-| 登录与会话 | WP03 | 现成的会话中间件和密码哈希库 | 未评估 |
-| 图表 | WP03 | Chart.js（计划已选定，需本地打包） | 未登记版本 |
 | 企业发现 | WP04 | 高德、百度开放接口的官方或社区 SDK | 未评估 |
 | 客户跟进 | WP05 | 开源 CRM 的数据结构和界面做法 | 未评估 |
 | 平台发布 | WP06 | social-auto-upload（计划注明 MIT，引入前核对） | 未评估 |
 | 朋友圈发布 | WP08 | uiautomator2 | 未评估 |
+
+## WP03 的选型记录（2026-10-10）
+
+| 用途 | 采用 | 版本 | 来源 | 许可 | 维护状态（npm，2026-10-10 查） | 说明 |
+|---|---|---|---|---|---|---|
+| 登录会话 | express-session | 1.19.0 | https://github.com/expressjs/session | MIT | 2026-01 发布，Express 官方维护 | Express 的标准会话中间件 |
+| 会话存储 | connect-pg-simple | 10.0.0 | https://github.com/voxpelli/node-connect-pg-simple | MIT | 2024-09 发布，功能稳定 | 会话存进现有的 PostgreSQL，不用另起 Redis；表由迁移 068 建 |
+| 登录限速 | express-rate-limit | 8.7.0 | https://github.com/express-rate-limit/express-rate-limit | MIT | 2026-08 发布；8.7.1 是四天前刚发的，暂不跟进 | 限制同一来源的登录尝试次数 |
+| 图表 | chart.js | 4.5.1 | https://github.com/chartjs/Chart.js | MIT | 2025-10 发布 | 总览页环形图；文件从本机 `node_modules` 提供，不走外网 |
+
+密码哈希用 Node 自带的 scrypt（`node:crypto`），没有引入第三方库。没有采用整套的登录框架（Passport、Lucia 等）：只有账号密码一种登录方式，会话中间件加四十行代码就够。
+
+页面样式按确认过的样稿手写（`public/assets/app.css`），没有加载 Tabler。Tabler 的两个依赖暂时保留，后面做表单和弹窗较多的页面时再决定用还是移除。
 
 ## WP02 的选型记录（2026-10-10）
 

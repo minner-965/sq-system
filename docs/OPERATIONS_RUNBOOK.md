@@ -26,11 +26,22 @@ docker compose down                   # 停止，保留数据
 - 手动执行：在 `services/demo-dashboard` 下 `npm run migrate:host`；只看待执行的文件加 `-- --dry`。
 - 已执行过的迁移文件被改动时，执行器会报错并停下；改动一律新增文件。
 - 数据库只映射到本机 `127.0.0.1:5433`（可用 `POSTGRES_HOST_PORT` 改），供迁移命令和导入脚本使用。
+- `docker compose down -v` 会删除数据卷，执行前先确认数据已备份或不需要。
+
+## 账号与登录
+
+- 除登录页外，所有页面和接口都要先登录。`.env` 里必须有 `SESSION_SECRET`（至少 32 位随机字符），没有它应用不启动。
+- 新建账号或重置密码：在 `services/demo-dashboard` 下运行
+  - `npm run user:set -- --username boss --name 老板 --role boss`
+  - `npm run user:set -- --username chen --name 陈经理 --role leasing --sectors office_retail,dining`
+  - `npm run user:set -- --username admin`（只重置密码）
+- 密码随机生成，写在本机 `data/accounts.local.txt`（不进 Git），以该账号的最后一行为准。重置密码后该账号原有的登录全部失效。
+- 角色：`admin` 管理员（全部权限，能看底价）、`boss` 老板（只读）、`leasing` 招商人员（只看分配给自己的板块）。
+- 密码连续输错 5 次，账号锁定 15 分钟；同一来源 10 分钟内最多尝试 20 次。登录保持 12 小时。
 
 ## 房源导入
 
 在 `services/demo-dashboard` 下运行 `npm run import:properties`。脚本从 `E:\claude\训练数据`（只读）读取推租表和平面图，写入房源、招商政策和项目信息，并生成 `docs/hz/房源导入报告.md`。可重复运行；房源的跟进状态不会被覆盖。平面图图片生成在 `data/media/floorplans/`，不进 Git。
-- `docker compose down -v` 会删除数据卷，执行前先确认数据已备份或不需要。
 
 ## 发布
 
