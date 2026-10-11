@@ -32,7 +32,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v9"
+VERSION = "v10"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 两条私信回复之间至少隔这么久（发得太密容易被平台限制）。
@@ -405,7 +405,10 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
 def sync_stranger_messages(conn: psycopg.Connection, account: dict) -> str:
     """把陌生人发来的私信收进互动收件箱。朋友私信和群消息不读。
     第一次读的时候，这一栏里已经有的会话只记下来、不收；之后新来的（或老会话里的新一句）才收。"""
-    data = asyncio.run(read_stranger_messages(account["id"]))
+    # 当初从陌生人私信进来的人：会话挪到主列表后继续跟。朋友的会话不在这个名单里，不会被读。
+    followed = {row["sender_name"] for row in conn.execute(
+        "SELECT DISTINCT sender_name FROM leadgen.interaction_messages WHERE account_id = %s AND kind = 'direct_message' AND source = 'reader'", (account["id"],)).fetchall()}
+    data = asyncio.run(read_stranger_messages(account["id"], followed))
     if not data["logged_in"]:
         return "私信页打不开"
     if data.get("errors"):
@@ -520,7 +523,7 @@ def process_replies(conn: psycopg.Connection) -> None:
         return
     try:
         if message["kind"] == "direct_message":
-            asyncio.run(send_stranger_message(message["account_id"], message["who"], message["content"], message["reply_text"]))
+            asyncio.run(send_stranger_message(message["account_id"], message["who"], message["content"], message["reply_text"], follow_to_main=True))
         else:
             asyncio.run(send_comment_reply(message["account_id"], message["task_title"], message["sender_name"], message["content"], message["reply_text"]))
     except ReplyError as error:
