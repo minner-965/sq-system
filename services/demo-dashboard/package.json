@@ -10,6 +10,7 @@
     "migrate": "node scripts/migrate.mjs",
     "migrate:host": "node --env-file=../../.env scripts/migrate.mjs --host",
     "check:amap": "node --env-file=../../.env scripts/hz/check-amap.mjs",
+    "check:search-llm": "node --env-file=../../.env scripts/hz/check-search-llm.mjs",
     "user:set": "node --env-file=../../.env scripts/hz/set-user.mjs",
     "import:properties": "node --env-file=../../.env scripts/hz/import-properties.mjs",
     "test:native-smoke": "node scripts/check-native-dependencies.mjs"

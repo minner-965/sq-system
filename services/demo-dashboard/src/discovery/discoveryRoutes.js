@@ -5,7 +5,7 @@ import {
   createRun, getSettings, listCandidates, recentRuns, reviewCandidate, updateSettings, usageSummary
 } from './discoveryService.js';
 
-export function createDiscoveryRouter({ pool, auth, providers, enqueueRun }) {
+export function createDiscoveryRouter({ pool, auth, providers, llm, enqueueRun }) {
   const router = express.Router();
   const read = [auth.authenticate];
   const write = [auth.authenticate, auth.requireWrite];
@@ -31,6 +31,8 @@ export function createDiscoveryRouter({ pool, auth, providers, enqueueRun }) {
     res.json({
       providers: [
         { name: 'amap', label: '高德地图', purpose: '周边企业', connected: providers.amap.configured },
+        { name: 'baidu_search', label: '百度搜索', purpose: '需求信号', connected: providers.baiduSearch.configured },
+        { name: llm.provider, label: '大模型', purpose: '判断搜索结果', connected: llm.configured },
         ...PLANNED_PROVIDERS.map(provider => ({ ...provider, connected: false }))
       ],
       runs: await recentRuns(pool),

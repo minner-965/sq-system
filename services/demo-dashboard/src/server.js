@@ -18,6 +18,7 @@ import { createProviders } from './discovery/providers/index.js';
 import { createRun, getSettings, runDiscovery } from './discovery/discoveryService.js';
 import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
 import { createCustomerRouter } from './customers/customerRoutes.js';
+import { createLlmClient } from './llm/llmClient.js';
 
 const { Pool } = pg;
 const app = express();
@@ -58,6 +59,7 @@ async function scoreCompany(data, job) {
 }
 
 const providers = createProviders();
+const llm = createLlmClient();
 
 // 手动检索带着 run_id 进来；每天定时的那次没有，在这里建记录。
 async function discoverCompanies(data) {
@@ -66,7 +68,7 @@ async function discoverCompanies(data) {
     if (!providers.amap.configured || !(await getSettings(pool)).daily_run_enabled) return { skipped: true };
     runId = await createRun(pool, { trigger: 'scheduled' });
   }
-  const totals = await runDiscovery(pool, { runId, provider: providers.amap, log: line => audit('discovery', { run_id: runId, detail: line }) });
+  const totals = await runDiscovery(pool, { runId, provider: providers.amap, search: providers.baiduSearch, llm, log: line => audit('discovery', { run_id: runId, detail: line }) });
   audit('discovery_completed', { run_id: runId, ...totals });
   return totals;
 }
@@ -137,7 +139,7 @@ function mountWorkspace(auth) {
   app.use('/api', createLeasingRouter({ pool, auth }));
   app.use('/api', createCustomerRouter({ pool, auth }));
   app.use('/api/discovery', createDiscoveryRouter({
-    pool, auth, providers,
+    pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })
   }));
 

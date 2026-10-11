@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { createAmapProvider, normalizePoi } from '../src/discovery/providers/amap.js';
 import { isInsideProject, planQueries } from '../src/discovery/discoveryService.js';
 import { RULE_VERSION, scoreCompany } from '../src/discovery/scoring.js';
+import { validateSignals } from '../src/discovery/signals.js';
+import { clipQuery } from '../src/discovery/providers/baiduSearch.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,6 +57,46 @@ test('scores add up from distance, company type and reachability, each with a re
     assert.equal(result.items.reduce((sum, item) => sum + item.max, 0), 100);
   }
   assert.match(RULE_VERSION, /^hz-/);
+});
+
+test('demand signals add up to 30 points, each tied to the page it came from', () => {
+  const company = normalizePoi(POI);
+  const office = options => scoreCompany(company, options)[0];
+  assert.equal(office().items[3].reason, '还没有查过');
+  assert.equal(office({ signalsChecked: true }).items[3].reason, '近一年没有查到招聘、扩张、迁址、新设方面的公开信息');
+
+  const hiring = { type: 'hiring', evidence: '正在招聘销售和工程师', sourceTitle: '示例科技招聘', sourceUrl: 'https://jobs.example/1' };
+  const moving = { type: 'relocation', evidence: '计划年内搬到新园区', sourceTitle: '示例科技搬迁公告', sourceUrl: 'https://news.example/2' };
+  const one = office({ signals: [hiring], signalsChecked: true });
+  assert.deepEqual([one.items[3].points, one.score], [10, 66]);
+  assert.equal(one.items[3].source.url, 'https://jobs.example/1');
+
+  const both = office({ signals: [hiring, moving], signalsChecked: true });
+  assert.equal(both.items[3].points, 30);
+  assert.equal(both.items[3].reason, '招聘：正在招聘销售和工程师；迁址：计划年内搬到新园区');
+  assert.equal(both.items[3].source.url, 'https://news.example/2');
+  const expanding = { type: 'expansion', evidence: '新增产线', sourceUrl: 'https://news.example/3' };
+  assert.equal(office({ signals: [hiring, moving, expanding] }).items[3].points, 30);
+});
+
+test('a signal is kept only when it points at a real search result', () => {
+  const results = [{ title: '示例科技招聘', url: 'https://jobs.example/1', date: '2026-09-30 01:53:02' }, { title: '别的公司', url: 'https://other.example', date: null }];
+  const signals = validateSignals({ signals: [
+    { type: 'hiring', result: 1, evidence: '在招人' },
+    { type: 'hiring', result: 2, evidence: '重复的类型' },
+    { type: 'relocation', result: 9, evidence: '编号不存在' },
+    { type: 'bankrupt', result: 1, evidence: '不认识的类型' },
+    { type: 'expansion', result: 2, evidence: '' }
+  ] }, results);
+  assert.deepEqual(signals, [{ type: 'hiring', evidence: '在招人', sourceTitle: '示例科技招聘', sourceUrl: 'https://jobs.example/1', sourceDate: '2026-09-30' }]);
+  assert.deepEqual(validateSignals({}, results), []);
+  assert.deepEqual(validateSignals({ signals: 'none' }, results), []);
+});
+
+test('search queries are cut to the length the search service accepts', () => {
+  assert.equal(clipQuery('abc'), 'abc');
+  assert.equal(clipQuery('企'.repeat(40)).length, 36);
+  assert.equal(clipQuery(`${'a'.repeat(70)}企业`), `${'a'.repeat(70)}企`);
 });
 
 test('sector routing follows distance and company size', () => {

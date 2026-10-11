@@ -1,5 +1,6 @@
 import { AMAP_MAX_PAGES, AMAP_PAGE_SIZE } from './providers/amap.js';
 import { RULE_VERSION, scoreCompany } from './scoring.js';
+import { runSignalChecks } from './signals.js';
 
 const STALE_RUN_MINUTES = 30;
 const OWN_PROJECT_NAME = /恒兆/;
@@ -7,7 +8,8 @@ const OWN_PROJECT_NAME = /恒兆/;
 export async function getSettings(pool) {
   const { rows: [row] } = await pool.query(`
     SELECT center_longitude::float AS center_longitude, center_latitude::float AS center_latitude, radius_m,
-           category_codes, keywords, exclude_address_keywords, exclude_within_m, max_calls_per_run, daily_run_enabled, updated_at
+           category_codes, keywords, exclude_address_keywords, exclude_within_m, max_calls_per_run, signal_checks_per_run,
+           daily_run_enabled, updated_at
     FROM leadgen.discovery_settings WHERE id = 1`);
   return row;
 }
@@ -99,7 +101,22 @@ async function saveCompany(client, company) {
     RETURNING id, (xmax = 0) AS inserted`,
   [company.name, company.city, company.address, company.longitude, company.latitude, company.industry,
     company.categoryCode, company.phone, company.distanceM, company.source, company.sourceRef]);
-  for (const result of scoreCompany(company)) {
+  await rescoreCompany(client, row.id);
+  return row.inserted;
+}
+
+/** Recomputes a stored company's candidates from its current facts and signals. */
+export async function rescoreCompany(client, companyId) {
+  const { rows: [stored] } = await client.query(`
+    SELECT company_name, company_type, distance_m, phone, source_ref, signals_checked_at FROM leadgen.companies WHERE id = $1`, [companyId]);
+  const { rows: signals } = await client.query(`
+    SELECT signal_type AS type, evidence, source_title AS "sourceTitle", source_url AS "sourceUrl"
+    FROM leadgen.company_signals WHERE company_id = $1 ORDER BY signal_type`, [companyId]);
+  const company = {
+    name: stored.company_name, categoryCode: stored.company_type, distanceM: stored.distance_m, phone: stored.phone,
+    sourceUrl: `https://www.amap.com/place/${stored.source_ref}`
+  };
+  for (const result of scoreCompany(company, { signals, signalsChecked: stored.signals_checked_at != null })) {
     // 复核结论（status）不因重新评分而改变。
     await client.query(`
       INSERT INTO leadgen.company_sector_candidates (company_id, sector_key, score, score_items, notices, rule_version)
@@ -107,23 +124,24 @@ async function saveCompany(client, company) {
       ON CONFLICT (company_id, sector_key) DO UPDATE SET
         score = EXCLUDED.score, score_items = EXCLUDED.score_items, notices = EXCLUDED.notices,
         rule_version = EXCLUDED.rule_version, scored_at = now()`,
-    [row.id, result.sectorKey, result.score, JSON.stringify(result.items), result.notices, RULE_VERSION]);
+    [companyId, result.sectorKey, result.score, JSON.stringify(result.items), result.notices, RULE_VERSION]);
   }
-  return row.inserted;
 }
 
 /**
  * Searches around the project, stores companies without duplicates and scores them per sector.
  * Every provider call is written to api_usage_events.
  */
-export async function runDiscovery(pool, { runId, provider, log = () => {} }) {
+export async function runDiscovery(pool, { runId, provider, search = null, llm = null, log = () => {} }) {
   const settings = await getSettings(pool);
-  const totals = { api_calls: 0, results_seen: 0, companies_new: 0, companies_updated: 0, companies_excluded: 0 };
+  const totals = { api_calls: 0, results_seen: 0, companies_new: 0, companies_updated: 0, companies_excluded: 0, signals_checked: 0, signals_found: 0 };
   await pool.query(`UPDATE leadgen.discovery_runs SET status = 'running', started_at = now() WHERE id = $1`, [runId]);
   const finish = (status, errorMessage = null) => pool.query(`
     UPDATE leadgen.discovery_runs SET status = $2, error_message = $3, finished_at = now(), api_calls = $4,
-      results_seen = $5, companies_new = $6, companies_updated = $7, companies_excluded = $8 WHERE id = $1`,
-  [runId, status, errorMessage, totals.api_calls, totals.results_seen, totals.companies_new, totals.companies_updated, totals.companies_excluded]);
+      results_seen = $5, companies_new = $6, companies_updated = $7, companies_excluded = $8,
+      signals_checked = $9, signals_found = $10 WHERE id = $1`,
+  [runId, status, errorMessage, totals.api_calls, totals.results_seen, totals.companies_new, totals.companies_updated,
+    totals.companies_excluded, totals.signals_checked, totals.signals_found]);
   const excluded = company => isInsideProject(company, settings);
   const exhausted = new Set();
   const seen = new Set();
@@ -172,6 +190,11 @@ export async function runDiscovery(pool, { runId, provider, log = () => {} }) {
       log(`${summary}：${result.companies.length} 条`);
     }
     await archiveProjectTenants(pool, settings);
+    if (search && llm) {
+      const signals = await runSignalChecks(pool, { search, llm, limit: settings.signal_checks_per_run, runId, rescore: rescoreCompany, log });
+      totals.signals_checked = signals.checked;
+      totals.signals_found = signals.found;
+    }
     await finish('completed');
   } catch (error) {
     await finish('failed', String(error.message).slice(0, 300));
@@ -250,7 +273,7 @@ export async function reviewCandidate(pool, { candidateId, decision, reason, use
 export async function recentRuns(pool, limit = 5) {
   const { rows } = await pool.query(`
     SELECT r.id, r.trigger, r.status, r.provider, r.api_calls, r.results_seen, r.companies_new, r.companies_updated,
-           r.companies_excluded, r.error_message, r.created_at, r.finished_at, u.display_name AS requested_by_name
+           r.companies_excluded, r.signals_checked, r.signals_found, r.error_message, r.created_at, r.finished_at, u.display_name AS requested_by_name
     FROM leadgen.discovery_runs r LEFT JOIN leadgen.users u ON u.id = r.requested_by
     ORDER BY r.created_at DESC LIMIT $1`, [limit]);
   return rows;
