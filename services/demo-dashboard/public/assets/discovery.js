@@ -64,7 +64,7 @@ function describeRun(run) {
   const who = run.trigger === 'scheduled' ? '每日自动检索' : `${run.requested_by_name || ''}发起的检索`;
   if (run.status === 'queued' || run.status === 'running') return `${who}正在进行，完成后本页自动刷新`;
   if (run.status === 'failed') return `${dateTime(run.created_at)} ${who}没有完成：${run.error_message || '原因未知'}`;
-  return `最近一次检索 ${dateTime(run.finished_at)}：看了 ${run.results_seen} 家，新增 ${run.companies_new} 家，更新 ${run.companies_updated} 家，项目内商户 ${run.companies_excluded} 家未收录`;
+  return `最近一次检索 ${dateTime(run.finished_at)}：看了 ${run.results_seen} 家，新增 ${run.companies_new} 家，更新 ${run.companies_updated} 家，项目内商户 ${run.companies_excluded} 家未收录${run.signals_checked ? `；查了 ${run.signals_checked} 家的近况，找到 ${run.signals_found} 条需求信号` : ''}`;
 }
 
 async function loadStatus() {
@@ -78,10 +78,10 @@ async function loadStatus() {
     runButton.disabled = active || !amap.connected;
     runButton.textContent = active ? '正在检索' : '立即检索';
   }
-  const usage = data.usage.find(row => row.provider === 'amap');
-  byId('usage').textContent = usage
-    ? `高德地图接口：今天调用 ${usage.calls_today} 次，本月 ${usage.calls_this_month} 次${usage.errors_this_month ? `（其中失败 ${usage.errors_this_month} 次）` : ''}，本月费用 ${usage.cost_this_month.toFixed(2)} 元。`
-    : '高德地图接口：还没有调用记录。';
+  const label = name => data.providers.find(provider => provider.name === name)?.label || name;
+  byId('usage').textContent = data.usage.length
+    ? `接口用量：${data.usage.map(row => `${label(row.provider)}今天 ${row.calls_today} 次、本月 ${row.calls_this_month} 次${row.errors_this_month ? `（失败 ${row.errors_this_month} 次）` : ''}，本月约 ${row.cost_this_month.toFixed(2)} 元`).join('；')}。`
+    : '接口用量：还没有调用记录。';
   clearTimeout(state.polling);
   if (active) state.polling = setTimeout(async () => { await refresh(); }, 3000);
   return active;

@@ -1,7 +1,26 @@
 // 候选企业评分。规则说明见 docs/hz/评分规则.md，两处要一起改。
 // 满分 100：距离 40、企业类型 20、可联系 10、需求信号 30。
 
-export const RULE_VERSION = 'hz-2026.10-1';
+import { SIGNAL_TYPES } from './signals.js';
+
+export const RULE_VERSION = 'hz-2026.10-2';
+const SIGNAL_MAX = 30;
+
+/** 需求信号：招聘 10、扩张 15、新设 15、迁址 20，合计封顶 30。出处是搜到的网页。 */
+function signalItem(signals, checked) {
+  if (!signals.length) {
+    return { item: '需求信号', points: 0, max: SIGNAL_MAX, reason: checked ? '近一年没有查到招聘、扩张、迁址、新设方面的公开信息' : '还没有查过', source: null };
+  }
+  const strongest = [...signals].sort((a, b) => SIGNAL_TYPES[b.type].points - SIGNAL_TYPES[a.type].points)[0];
+  return {
+    item: '需求信号',
+    points: Math.min(SIGNAL_MAX, signals.reduce((sum, signal) => sum + SIGNAL_TYPES[signal.type].points, 0)),
+    max: SIGNAL_MAX,
+    reason: signals.map(signal => `${SIGNAL_TYPES[signal.type].label}：${signal.evidence}`).join('；'),
+    source: { label: strongest.sourceTitle?.slice(0, 20) || '网页', url: strongest.sourceUrl },
+    sources: signals.map(signal => ({ label: SIGNAL_TYPES[signal.type].label, url: signal.sourceUrl }))
+  };
+}
 
 // 每个板块的距离分档 [不超过多少米, 得分]，以及超出最后一档就不作为该板块的候选。
 const DISTANCE_BANDS = {
@@ -30,9 +49,10 @@ const TYPE_POINTS = {
 
 /**
  * @param {{ name: string, categoryCode?: string, distanceM: number|null, phone?: string|null, sourceUrl: string }} company
+ * @param {{ signals?: {type: string, evidence: string, sourceTitle?: string, sourceUrl: string}[], signalsChecked?: boolean }} [found]
  * @returns {{ sectorKey: string, score: number, items: object[], notices: string[] }[]} one entry per sector the company qualifies for
  */
-export function scoreCompany(company) {
+export function scoreCompany(company, { signals = [], signalsChecked = false } = {}) {
   if (company.distanceM == null) return [];
   const source = { label: '高德地图', url: company.sourceUrl };
   const type = companyType(company);
@@ -47,7 +67,7 @@ export function scoreCompany(company) {
       { item: '距离', points: band[1], max: 40, reason: `距恒兆广场 ${km(company.distanceM)}`, source },
       { item: '企业类型', points: TYPE_POINTS[sectorKey][type.key], max: 20, reason: type.label, source },
       { item: '可联系', points: company.phone ? 10 : 0, max: 10, reason: company.phone ? '地图上登记了联系电话' : '地图上没有登记电话', source },
-      { item: '需求信号', points: 0, max: 30, reason: '暂无新设、迁址、扩张、招聘方面的信息', source: null }
+      signalItem(signals, signalsChecked)
     ];
     return [{ sectorKey, score: items.reduce((sum, item) => sum + item.points, 0), items, notices }];
   });

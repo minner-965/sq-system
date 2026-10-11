@@ -47,6 +47,8 @@ docker compose down                   # 停止，保留数据
 - 每次调用地图接口都记在 `leadgen.api_usage_events`，页面底部显示当天和当月的次数。默认每次检索最多调用 30 次。
 - 一次检索超过 30 分钟没结束会被标为失败，可以重新发起。失败的检索不会自动重试。
 - 评分规则见 `docs/hz/评分规则.md`。
+- 需求信号要 `.env` 里有 `BAIDU_SEARCH_KEY`（百度千帆）和 `DEEPSEEK_API_KEY`，检查：`npm run check:search-llm`。任一个没填就不查需求信号，其他功能不受影响。百度搜索不要开通“后付费”，免费额度用完当天就停。
+- 换大模型服务商：`.env` 里填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（任何兼容 OpenAI 接口的服务都行），重建 `app` 和 `worker`。
 
 ## 房源导入
 
