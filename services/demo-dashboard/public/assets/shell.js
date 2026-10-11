@@ -7,6 +7,7 @@ const ICONS = {
   properties: '<path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/>',
   publishing: '<path d="M4 4h16v12H5.2L4 17.5z"/><path d="M8 9h8M8 12h5"/>',
   leads: '<path d="M4 4h16v16H4z"/><path d="M4 9h16M9 20V9"/>',
+  inbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5a4 4 0 0 0 8 0h5"/>',
   reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
   more: '<path d="M4 6h16M4 12h16M4 18h16"/>'
@@ -21,6 +22,7 @@ const NAV = [
   { key: 'properties', label: '房源与服务' },
   { group: '内容' },
   { key: 'publishing', label: '内容发布', short: '发布', href: '/publishing.html' },
+  { key: 'inbox', label: '互动收件箱', href: '/inbox.html', badge: true },
   { key: 'leads', label: '留资线索' },
   { group: '管理' },
   { key: 'reports', label: '报表' },
@@ -49,7 +51,25 @@ export async function api(path, options) {
 function navItem(item, page) {
   if (item.group) return `<h6>${item.group}</h6>`;
   if (!item.href) return `<span class="off" aria-disabled="true">${icon(item.key)}${item.label}<small>未开通</small></span>`;
-  return `<a href="${item.href}"${item.key === page ? ' class="on" aria-current="page"' : ''}>${icon(item.key)}${item.label}</a>`;
+  return `<a href="${item.href}"${item.key === page ? ' class="on" aria-current="page"' : ''}>${icon(item.key)}${item.label}${item.badge ? `<span class="count" data-badge="${item.key}" hidden></span>` : ''}</a>`;
+}
+
+const INBOX_SEEN_KEY = 'hz.inbox-seen';
+/** 侧边栏的未处理数量；页面开着时，有新的意向消息就弹桌面通知（要先在收件箱页点过“开启提醒”）。 */
+async function watchInbox() {
+  try {
+    const since = localStorage.getItem(INBOX_SEEN_KEY);
+    const data = await api(`/api/inbox/summary${since ? `?since=${encodeURIComponent(since)}` : ''}`);
+    const badge = document.querySelector('[data-badge="inbox"]');
+    if (badge) { badge.textContent = data.unhandled; badge.hidden = !data.unhandled; }
+    if (since && 'Notification' in window && Notification.permission === 'granted') {
+      for (const item of data.fresh) {
+        const note = new Notification(`${item.platform_name}有新的意向消息`, { body: `${item.post_title ? `《${item.post_title.slice(0, 20)}》 ` : ''}${item.sender_name}：${item.content.slice(0, 30)}`, tag: item.id });
+        note.onclick = () => { window.focus(); location.href = '/inbox.html'; };
+      }
+    }
+    localStorage.setItem(INBOX_SEEN_KEY, data.server_time);
+  } catch { /* 下一轮再试 */ }
 }
 
 function mobileItem(item, page) {
@@ -109,6 +129,8 @@ export async function initShell({ page }) {
       : '<div class="state">没有通知</div>';
   };
   api('/api/notifications').then(renderNotifications).catch(() => {});
+  watchInbox();
+  setInterval(watchInbox, 60_000);
   document.getElementById('mbar').innerHTML = [
     ...NAV.filter(item => item.short).map(item => mobileItem(item, page)),
     `<span class="off" aria-disabled="true">${icon('more')}更多</span>`

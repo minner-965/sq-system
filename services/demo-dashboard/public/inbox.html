@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>互动收件箱 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>互动收件箱</h1>
+          <p id="sub">评论和私信里的询价、预约、合作、预订</p>
+        </div>
+        <div class="btns">
+          <button class="btn" type="button" id="open-manual" data-requires="write">手工录入一条</button>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+      <div class="notice" id="ask-notify" hidden>开着这个页面时，有新的意向消息可以在桌面弹出提醒。 <button class="btn sm" type="button" id="allow-notify">开启提醒</button></div>
+
+      <section class="card settings" id="manual" hidden>
+        <div class="ph"><div><h3>手工录入</h3><p>在手机上看到、系统读不到的消息（例如小红书私信）录在这里</p></div></div>
+        <form class="pb form-grid" id="manual-form">
+          <div class="field"><label for="m-platform">平台</label><select id="m-platform" name="platform"><option value="douyin">抖音</option><option value="xiaohongshu">小红书</option><option value="channels">视频号</option><option value="moments">朋友圈</option></select></div>
+          <div class="field"><label for="m-kind">类型</label><select id="m-kind" name="kind"><option value="direct_message">私信</option><option value="comment">评论</option></select></div>
+          <div class="field"><label for="m-sender">对方昵称</label><input id="m-sender" name="sender_name" maxlength="60" required></div>
+          <div class="field"><label for="m-post">所在帖子（可不填）</label><input id="m-post" name="post_title" maxlength="200"></div>
+          <div class="field wide"><label for="m-content">对方原话</label><textarea id="m-content" name="content" maxlength="2000" required></textarea></div>
+          <div class="wide form-actions"><span class="form-error" id="manual-error" role="alert"></span><button class="btn" type="button" id="cancel-manual">取消</button><button class="btn pri" type="submit">保存</button></div>
+        </form>
+      </section>
+
+      <div class="card">
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="处理状态" id="tabs"></div>
+          <label class="toggle"><input type="checkbox" id="mine">只看分给我的</label>
+        </div>
+        <div id="list"><div class="state">正在加载</div></div>
+      </div>
+      <p class="foot-note" id="foot">&nbsp;</p>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/inbox.js"></script>
+</body>
+</html>
