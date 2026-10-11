@@ -15,6 +15,9 @@ export const PLATFORM_NAME = Object.freeze({ douyin: '抖音', channels: '视频
 const KIND_NAME = { comment: '评论', direct_message: '私信' };
 const STATUSES = ['new', 'in_progress', 'converted', 'ignored'];
 export const OVERDUE_HOURS = 2;
+// 2026-10-12 实测：从创作者后台发出的私信，发出方看得到、对方收不到；手机上手动发的对方能收到。
+// 所以私信一律由人在手机上回，系统只读、提醒、起草。升级企业号后接平台官方的自动回复时再打开。
+export const DM_SENDING_AVAILABLE = false;
 export const DEFAULT_AUTO_REPLY = '您好，这里是恒兆广场招商部，消息已收到。方便留个电话或微信吗？招商同事会尽快联系您，发详细资料、约时间看场。';
 // 内容类型 → 线索进入哪个板块。
 const SECTOR_OF = { property: 'office_retail', event: 'office_retail', hotel: 'hotel_apartment', dining: 'dining' };
@@ -89,6 +92,7 @@ async function assigneeFor(db, publishTaskId) {
  * has already left contact details, and never past the daily limit. The publisher sends it.
  */
 async function queueAutoReply(pool, message, contact) {
+  if (!DM_SENDING_AVAILABLE) return false;
   if (message.kind !== 'direct_message' || message.source !== 'reader' || !message.account_id || message.intent === 'spam') return false;
   if (contact.phone || contact.wechat || contact.qq || contact.email) return false;
   const { rowCount } = await pool.query(`
@@ -416,7 +420,7 @@ export function confirmReply(pool, { messageId, text, manual = false, user }) {
     const forbidden = findForbidden(reply, (await postFacts(client, message)).floors);
     if (forbidden) throw fail(400, 'REPLY_FORBIDDEN_WORDING', `回复里不能出现${forbidden}`);
     // 手工录入的消息在系统里没有对应的平台会话，只能手动回复。
-    const byHand = message.source === 'manual' || !message.account_id;
+    const byHand = message.source === 'manual' || !message.account_id || (message.kind === 'direct_message' && !DM_SENDING_AVAILABLE);
     const status = manual ? 'manual' : byHand ? 'failed' : 'queued';
     await client.query(`
       UPDATE leadgen.interaction_messages SET reply_text = $2, reply_status = $3, reply_confirmed_by = $4, reply_confirmed_at = now(),
@@ -424,7 +428,7 @@ export function confirmReply(pool, { messageId, text, manual = false, user }) {
         reply_error = CASE WHEN $3 = 'failed' THEN $5 ELSE NULL END,
         status = CASE WHEN status = 'new' THEN 'in_progress' ELSE status END, handled_by = $4, handled_at = now(), updated_at = now()
       WHERE id = $1`, [messageId, reply, status, user.id,
-      '这条消息是手工录入的，系统发不了，请复制到手机上回复']);
+      message.kind === 'direct_message' && message.source !== 'manual' ? '私信要在手机上回：从电脑后台发的对方收不到。请复制内容到手机上发，发完点“已手动回复”' : '这条消息是手工录入的，系统发不了，请复制到手机上回复']);
     if (message.company_id) {
       await client.query(`
         INSERT INTO leadgen.activities (track_id, activity_type, content, created_by)
@@ -516,7 +520,7 @@ export async function requestCheck(pool, { user }) {
 export async function getInboxSettings(pool) {
   const { rows: [row] } = await pool.query('SELECT intent_keywords, assignee_property, assignee_event, assignee_hotel, assignee_dining, dm_auto_reply_enabled, dm_auto_reply_text, dm_auto_reply_daily_limit FROM leadgen.inbox_settings WHERE id = 1');
   const { rows: users } = await pool.query(`SELECT u.id, u.display_name FROM leadgen.users u JOIN leadgen.roles r ON r.key = u.role_key WHERE u.is_active AND r.can_write ORDER BY u.display_name`);
-  return { ...row, dm_auto_reply_text: row.dm_auto_reply_text || DEFAULT_AUTO_REPLY, users };
+  return { ...row, dm_auto_reply_text: row.dm_auto_reply_text || DEFAULT_AUTO_REPLY, dm_auto_reply_available: DM_SENDING_AVAILABLE, users };
 }
 
 export async function updateInboxSettings(pool, input, user = null) {
@@ -529,6 +533,7 @@ export async function updateInboxSettings(pool, input, user = null) {
   if (input.dm_auto_reply_enabled !== undefined) {
     // 自动回复的话术和人写的回复守同样的规矩：不出现底价，不超过 300 字。打开它的人就是认可这段话术的人。
     const enabled = input.dm_auto_reply_enabled === true;
+    if (enabled && !DM_SENDING_AVAILABLE) throw fail(409, 'DM_AUTO_REPLY_UNAVAILABLE', '自动回复暂时用不了：从电脑后台发的私信对方收不到，私信请在手机上回');
     const text = String(input.dm_auto_reply_text || '').trim();
     const limit = Number(input.dm_auto_reply_daily_limit ?? 30);
     if (enabled && !user) throw fail(400, 'INBOX_SETTINGS_INVALID', '需要登录的管理员来打开自动回复');

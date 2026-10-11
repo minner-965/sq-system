@@ -39,7 +39,10 @@
 
         <section class="card settings" style="margin-top:16px">
           <div class="ph"><div><h3>陌生人私信自动回复</h3><p>陌生人发来私信时，先用下面这段话回一句，请对方留联系方式；同一个人只回一次，朋友私信不回</p></div></div>
-          <div class="pb">
+          <div class="pb" id="auto-off" hidden>
+            <p class="meta">现在用不了。实测从电脑后台发出的私信，我们自己看得到，对方收不到；在手机上发的对方能收到。所以陌生人私信请在手机上回：系统会读到消息、提醒你、写好回复草稿，你复制到手机上发。以后升级企业号，可以改用平台自带的自动回复。</p>
+          </div>
+          <div class="pb" id="auto-on" hidden>
             <label class="check"><input type="checkbox" id="s-auto" name="dm_auto_reply_enabled"> 打开自动回复</label>
             <div class="field" style="margin-top:14px">
               <label for="s-auto-text">回复的话（不超过 300 字）</label>
@@ -47,7 +50,7 @@
             </div>
             <div class="field" style="max-width:240px">
               <label for="s-auto-limit">每天最多自动回几个人</label>
-              <input id="s-auto-limit" name="dm_auto_reply_daily_limit" type="number" min="1" max="200" required>
+              <input id="s-auto-limit" name="dm_auto_reply_daily_limit" type="number" min="1" max="200">
             </div>
             <p class="meta">对方已经留了电话、微信、QQ 或邮箱的，不再自动回，直接提醒你。两条回复之间至少隔 3 分钟。</p>
           </div>

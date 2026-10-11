@@ -5,6 +5,7 @@ const shell = await initShell({ page: 'settings' });
 const ASSIGNEES = ['assignee_property', 'assignee_event', 'assignee_hotel', 'assignee_dining'];
 const MAX_KEYWORDS = 300;
 let keywords = [];
+let autoAvailable = false;
 
 function notice(text) {
   byId('notice').textContent = text;
@@ -32,6 +33,9 @@ function fill(settings) {
   keywords = [...settings.intent_keywords];
   renderKeywords();
   const options = '<option value="">不指定（管理员处理）</option>' + settings.users.map(user => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join('');
+  autoAvailable = settings.dm_auto_reply_available;
+  byId('auto-off').hidden = autoAvailable;
+  byId('auto-on').hidden = !autoAvailable;
   byId('s-auto').checked = settings.dm_auto_reply_enabled;
   byId('s-auto-text').value = settings.dm_auto_reply_text;
   byId('s-auto-limit').value = settings.dm_auto_reply_daily_limit;
@@ -76,7 +80,8 @@ byId('form').addEventListener('submit', async event => {
   addKeyword();
   if (byId('form-error').textContent) return;
   const form = event.currentTarget;
-  const body = { intent_keywords: keywords, dm_auto_reply_enabled: byId('s-auto').checked, dm_auto_reply_text: byId('s-auto-text').value, dm_auto_reply_daily_limit: Number(byId('s-auto-limit').value) };
+  const body = { intent_keywords: keywords };
+  if (autoAvailable) Object.assign(body, { dm_auto_reply_enabled: byId('s-auto').checked, dm_auto_reply_text: byId('s-auto-text').value, dm_auto_reply_daily_limit: Number(byId('s-auto-limit').value) });
   for (const name of ASSIGNEES) body[name] = form.elements[name].value || null;
   byId('save').disabled = true;
   notice('');

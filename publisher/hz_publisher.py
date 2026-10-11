@@ -32,9 +32,12 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v10"
+VERSION = "v11"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
+# 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
+# 发送的程序留着（douyin_reader.send_stranger_message），升级企业号、确认能送达后再改成 True。
+DM_SENDING_AVAILABLE = False
 # 两条私信回复之间至少隔这么久（发得太密容易被平台限制）。
 MESSAGE_GAP_MINUTES = 3
 METRICS_HOURS = 6
@@ -514,11 +517,11 @@ def process_replies(conn: psycopg.Connection) -> None:
         LEFT JOIN leadgen.publish_tasks t ON t.id = i.publish_task_id
         WHERE i.reply_status = 'queued' AND i.platform = 'douyin' AND a.login_status = 'ok' AND NOT a.is_paused
           AND ((i.kind = 'comment' AND t.id IS NOT NULL)
-               OR (i.kind = 'direct_message' AND i.source = 'reader' AND NOT EXISTS (
+               OR (%s AND i.kind = 'direct_message' AND i.source = 'reader' AND NOT EXISTS (
                      SELECT 1 FROM leadgen.interaction_messages recent
                      WHERE recent.kind = 'direct_message' AND recent.account_id = i.account_id AND recent.replied_at > now() - make_interval(mins => %s))))
         ORDER BY i.reply_confirmed_at LIMIT 1
-        """, (MESSAGE_GAP_MINUTES,)).fetchone()
+        """, (DM_SENDING_AVAILABLE, MESSAGE_GAP_MINUTES)).fetchone()
     if not message:
         return
     try:
