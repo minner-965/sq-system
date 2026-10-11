@@ -132,17 +132,33 @@ async def read_stranger_messages(account_id) -> dict:
             except Exception:
                 result["logged_in"] = False
                 return result
-            await tab.click()
+            # 页面刚出来时点栏目有时不生效，多点几次，直到选中的确实是这一栏。
+            for _ in range(5):
+                await page.wait_for_timeout(3000)
+                if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() == "陌生人私信":
+                    break
+                await tab.click()
             pane = page.locator(".semi-tabs-pane-active").first
-            # 等加载圈消失：要么出现“还没有收到私信”，要么出现会话列表。
             empty = pane.get_by_text("还没有收到私信")
             rows = pane.locator(".ReactVirtualized__Grid__innerScrollContainer > *")
-            for _ in range(20):
-                await page.wait_for_timeout(2000)
-                if await empty.count() or await rows.count():
+            # 刚点完栏目时，页面上还留着上一栏（全部私信，里面有朋友的聊天）的列表，绝不能在这时候读。
+            # 先等够切换的时间，再要求：当前选中的确实是“陌生人私信”，并且隔几秒读两次结果一致，才算数。
+            await page.wait_for_timeout(10000)
+            previous = None
+            for _ in range(10):
+                active = (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip()
+                if active != "陌生人私信":
+                    result.setdefault("errors", []).append("没能切到陌生人私信一栏，这次不读")
+                    return result
+                current = (await empty.count(), await rows.count(), await pane.inner_text())
+                if previous == current and (current[0] or current[1]):
                     break
+                previous = current
+                await page.wait_for_timeout(4000)
             else:
                 result.setdefault("errors", []).append("私信页一直在加载，这次没读到")
+                return result
+            if await empty.count():
                 return result
             for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
                 lines = [line.strip() for line in (await rows.nth(index).inner_text()).splitlines() if line.strip()]
