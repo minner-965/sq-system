@@ -135,7 +135,8 @@ function taskCard(task) {
       <span class="status ${task.has_body ? STATUS_CLASS[task.status] : 'st-wait'}">${escapeHtml(task.status_name)}</span></div>
     <div class="pb">
       ${task.status === 'confirmed' ? `<div class="notice">将在 ${dateTime(task.scheduled_at)} 用“${escapeHtml(task.account_name || '')}”发布，${escapeHtml(task.confirmed_by_name || '')}确认</div>` : ''}
-      ${task.status === 'published' ? `<div class="notice">已于 ${dateTime(task.published_at)} 发布${task.post_url ? `，<a class="lk" href="${escapeHtml(task.post_url)}" target="_blank" rel="noopener noreferrer">查看帖子</a>` : ''}</div>` : ''}
+      ${task.status === 'published' ? `<div class="notice">已于 ${dateTime(task.published_at)} 发布${task.post_url ? `，<a class="lk" href="${escapeHtml(task.post_url)}" target="_blank" rel="noopener noreferrer">查看帖子</a>` : ''}</div>
+        ${task.metrics_at && task.stat_views != null ? `<div class="facts metrics"><div><span>浏览</span><b>${task.stat_views}</b></div><div><span>点赞</span><b>${task.stat_likes}</b></div><div><span>评论</span><b>${task.stat_comments ?? 0}</b></div><div><span>收藏</span><b>${task.stat_favorites}</b></div><div><span>转发</span><b>${task.stat_shares}</b></div></div><div class="meta">数据更新于 ${dateTime(task.metrics_at)}，每 6 小时更新一次</div>` : ''}` : ''}
       ${task.status === 'failed' ? `<div class="warn-box" role="alert">发布失败：${escapeHtml(task.error_message || '原因未知')}。处理后重新确认即可，系统不会自动重发。${task.error_screenshot_url ? ` <a class="lk" href="${escapeHtml(task.error_screenshot_url)}" target="_blank" rel="noopener">看失败时的截图</a>` : ''}</div>` : ''}
       ${task.problems.length ? `<div class="warn-box">${task.problems.map(escapeHtml).join('；')}</div>` : ''}
       <form class="draft-form">

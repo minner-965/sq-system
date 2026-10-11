@@ -10,6 +10,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote_plus
 
 from patchright.async_api import async_playwright
 
@@ -21,6 +22,9 @@ MAX_COMMENT_PAGES = 10
 # 评论管理页自己用来列评论和追评的接口；追评只能从这里读到。
 THREAD_API = "/web/api/third_party/aweme/api/comment/read/aweme/v1/web/comment/list/"
 MAX_THREADS = 30
+MANAGE_PAGE = "https://creator.douyin.com/creator-micro/content/manage"
+WORK_LIST_API = "/janus/douyin/creator/pc/work_list"
+MAX_WORK_PAGES = 5
 MESSAGE_PAGE = "https://creator.douyin.com/creator-micro/data/following/chat"
 MAX_MESSAGE_ROWS = 30
 # 会话列表里的时间：刚刚、3分钟前、昨天 12:30、星期二、10-09、2026-10-09、12:30。
@@ -41,6 +45,52 @@ async def _page_get(page, path: str, params: dict) -> dict:
             const text = await response.text();
             try { return JSON.parse(text); } catch { return { status_code: -1, status_msg: text.slice(0, 200) }; }
         }""", [path, params])
+
+
+async def read_douyin_metrics(account_id, wanted_item_ids: set[str]) -> dict:
+    """读作品管理页上各个作品的数据，返回 {"logged_in": bool, "metrics": {作品编号: {views, likes, comments, favorites, shares}}}。
+    只返回 wanted_item_ids 里的作品（我们通过系统发布的），账号上其他作品的数据不取。只读。"""
+    result = {"logged_in": True, "metrics": {}}
+    first_page: asyncio.Future = asyncio.get_event_loop().create_future()
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(storage_state=str(cookie_file(account_id)), viewport={"width": 1440, "height": 900})
+        page = await context.new_page()
+
+        async def capture(response):
+            # 页面先用 count=1 探一下，再取整页；要后面那一次。
+            if WORK_LIST_API in response.url and "count=1&" not in response.url and not first_page.done():
+                try:
+                    first_page.set_result((response.url, await response.json()))
+                except Exception as error:
+                    if not first_page.done():
+                        first_page.set_exception(error)
+
+        page.on("response", capture)
+        try:
+            await page.goto(MANAGE_PAGE, wait_until="domcontentloaded", timeout=90000)
+            try:
+                url, data = await asyncio.wait_for(first_page, timeout=40)
+            except Exception:
+                result["logged_in"] = False
+                return result
+            query = dict(pair.split("=", 1) for pair in url.split("?", 1)[1].split("&") if "=" in pair and not pair.startswith(("a_bogus", "msToken")))
+            for _ in range(MAX_WORK_PAGES):
+                for item in data.get("items") or []:
+                    item_id = str(item.get("id") or "")
+                    numbers = item.get("metrics") or {}
+                    if item_id in wanted_item_ids:
+                        result["metrics"][item_id] = {
+                            name: int(float(numbers.get(field) or 0))
+                            for name, field in (("views", "view_count"), ("likes", "like_count"), ("comments", "comment_count"),
+                                                ("favorites", "favorite_count"), ("shares", "share_count"))}
+                if not data.get("has_more") or wanted_item_ids <= set(result["metrics"]):
+                    break
+                data = await _page_get(page, WORK_LIST_API, {**{key: unquote_plus(value) for key, value in query.items()}, "max_cursor": str(data.get("max_cursor") or 0)})
+            return result
+        finally:
+            await context.close()
+            await browser.close()
 
 
 async def _read_follow_ups(page, item_id: str, result: dict) -> list[dict]:
