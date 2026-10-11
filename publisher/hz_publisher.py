@@ -25,6 +25,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from xiaohongshu_reader import read_xiaohongshu_notes
+from phone_driver import PhoneNotReady, phone_status, post_moments
 from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply, send_stranger_message
 
 HERE = Path(__file__).parent.resolve()
@@ -32,7 +33,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v11"
+VERSION = "v12"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -40,6 +41,10 @@ RUN_LOCK_KEY = 20261011
 DM_SENDING_AVAILABLE = False
 # 两条私信回复之间至少隔这么久（发得太密容易被平台限制）。
 MESSAGE_GAP_MINUTES = 3
+# 朋友圈：用专用手机发。两条之间至少隔这么久，再加一段随机时间；失败一次就停，等人看过再恢复。
+MOMENTS_GAP_MINUTES = 40
+MOMENTS_GAP_RANDOM_MINUTES = 40
+PHONE_CHECK_SECONDS = 60
 METRICS_HOURS = 6
 METRICS_DAYS = 30
 MIN_GAP_MINUTES = 10
@@ -200,6 +205,22 @@ def process_login_requests(conn: psycopg.Connection) -> None:
         print(f"{request['account_name']}：{message}")
 
 
+_phone_checked = 0.0
+
+
+def phone_heartbeat(conn: psycopg.Connection) -> None:
+    """每分钟看一次专用手机在不在，写进在线状态，页面上能看到。"""
+    global _phone_checked
+    if time.monotonic() - _phone_checked < PHONE_CHECK_SECONDS:
+        return
+    _phone_checked = time.monotonic()
+    try:
+        status = phone_status()
+    except Exception as error:
+        status = {"connected": False, "ready": False, "note": f"看手机状态时出错：{error}"[:120]}
+    conn.execute("UPDATE leadgen.publisher_heartbeat SET phone = %s, phone_checked_at = now() WHERE id = 1", (Jsonb(status),))
+
+
 def heartbeat(conn: psycopg.Connection) -> None:
     conn.execute("UPDATE leadgen.publisher_heartbeat SET last_seen_at = now(), host_name = %s WHERE id = 1", (f"{os.environ.get('COMPUTERNAME', '')} · {VERSION}",))
 
@@ -231,9 +252,10 @@ def claim_due_task(conn: psycopg.Connection) -> dict | None:
                 SELECT 1 FROM leadgen.publish_tasks other
                 WHERE other.account_id = t.account_id AND other.id <> t.id
                   AND (other.status = 'publishing'
-                       OR COALESCE(other.published_at, other.publish_started_at) > now() - make_interval(mins => %s)))
+                       OR COALESCE(other.published_at, other.publish_started_at) > now() - make_interval(
+                            mins => CASE WHEN t.platform = 'moments' THEN %s + abs(hashtext(t.id::text)) %% (%s + 1) ELSE %s END)))
             ORDER BY t.scheduled_at LIMIT 1 FOR UPDATE OF t SKIP LOCKED
-            """, (MIN_GAP_MINUTES,)).fetchone()
+            """, (MOMENTS_GAP_MINUTES, MOMENTS_GAP_RANDOM_MINUTES, MIN_GAP_MINUTES)).fetchone()
         if task:
             conn.execute("UPDATE leadgen.publish_tasks SET status = 'publishing', publish_started_at = now(), updated_at = now() WHERE id = %s", (task["id"],))
         return task
@@ -256,7 +278,33 @@ def fail(conn: psycopg.Connection, task: dict, reason: str) -> None:
     print(f"失败：{task['topic']}（{PLATFORM_LABEL[task['platform']]}）{reason}")
 
 
+def publish_moments(conn: psycopg.Connection, task: dict) -> None:
+    """朋友圈：用专用手机发。失败一次就把这个账号暂停，不接着发后面的，等人看过原因再恢复。"""
+    files = conn.execute(
+        "SELECT kind, file_path FROM leadgen.material_files WHERE material_id = %s ORDER BY sort_order", (task["material_id"],)).fetchall()
+    images = [str(MEDIA_DIR / row["file_path"]) for row in files if row["kind"] == "image"]
+    try:
+        if not images:
+            raise PhoneNotReady("朋友圈现在只发图文，这条素材里没有图片")
+        post_moments(task["body"], images)
+    except PhoneNotReady as error:
+        reason = str(error)
+    except Exception as error:
+        reason = f"手机操作出错：{error}"[:200]
+    else:
+        conn.execute("UPDATE leadgen.publish_tasks SET status = 'published', published_at = now(), error_message = NULL, error_screenshot = NULL, updated_at = now() WHERE id = %s", (task["id"],))
+        print(f"已发布：{task['topic']}（朋友圈，{task['account_name']}）")
+        return
+    fail(conn, task, reason)
+    conn.execute("UPDATE leadgen.publish_accounts SET is_paused = true, updated_at = now() WHERE id = %s", (task["account_id"],))
+    notify(conn, "朋友圈已暂停发布", f"“{task['topic']}”没有发出去：{reason}。后面排着的朋友圈先不发，看过原因后在“发布账号”里点“恢复发布”。",
+           "/accounts.html", task["confirmed_by"])
+
+
 def publish(conn: psycopg.Connection, task: dict) -> None:
+    if task["platform"] == "moments":
+        publish_moments(conn, task)
+        return
     platform = SAU_PLATFORM.get(task["platform"])
     if not platform:
         fail(conn, task, f"{PLATFORM_LABEL[task['platform']]}还没有接入发布程序")
@@ -589,7 +637,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
@@ -617,6 +665,7 @@ def main(argv: list[str]) -> int:
                             print("程序已更新，正在重新启动。")
                             return 75
                         heartbeat(conn)
+                        phone_heartbeat(conn)
                         process_login_requests(conn)
                         process_due(conn)
                         process_inbox_checks(conn)

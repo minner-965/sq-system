@@ -3,3 +3,5 @@
 psycopg[binary]==3.3.5
 # The uploader's command line imports this for some platforms but does not declare it; version from its requirements.txt.
 playwright==1.52.0
+# Drives the dedicated Android phone over USB (WeChat Moments, Douyin direct messages). Needs adb on the machine.
+uiautomator2==3.2.9
