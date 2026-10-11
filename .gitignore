@@ -112,4 +112,7 @@ Thumbs.db
 
 # Publishing worker login state and uploaded media
 publisher/state/
+publisher/vendor/
+publisher/.venv/
+data/accounts.local.txt
 data/media/
