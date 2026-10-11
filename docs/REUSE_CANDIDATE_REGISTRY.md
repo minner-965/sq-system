@@ -53,7 +53,9 @@ WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
 | 同上（组件的部分平台代码直接引用） | playwright | 1.52.0 | https://github.com/microsoft/playwright-python | Apache-2.0 | 版本取自组件的 requirements.txt | 只为让组件的命令行能加载 |
 | 发布程序读写数据库 | psycopg（binary） | 3.3.5 | https://github.com/psycopg/psycopg | LGPL-3.0 | 活跃 | 作为库调用，不改它的代码 |
 
-要知道的：social-auto-upload 发布成功后不返回帖子链接；失败时也不交出截图。这两项要靠我们自己读创作者后台补上（见进度记录）。
+要知道的：social-auto-upload 发布成功后不返回帖子链接，要靠我们自己读创作者后台补上。
+
+我们在固定版本上打了三处小补丁（`publisher/apply_patches.py`，安装脚本自动应用，每条写了原因）：抖音图文页标题框的定位（平台已改版，上游还没跟）；点发布无反应时限次重试、截图并报出页面提示（上游是无限重试）；发图文时遇到短信验证，替人点“获取验证码”并等人在窗口里输入（上游只在发视频时处理）。上游修复后提版本号、删补丁。
 
 ## WP05 的选型记录（2026-10-11）
 

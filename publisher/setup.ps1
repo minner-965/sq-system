@@ -33,5 +33,8 @@ $python = Join-Path $venv 'Scripts\python.exe'
 & $python -m pip install --quiet --upgrade pip
 & $python -m pip install --quiet -e $vendor
 & $python -m pip install --quiet -r (Join-Path $here 'requirements.txt')
+# Our own small fixes on top of the pinned uploader (see apply_patches.py for what and why).
+& $python (Join-Path $here 'apply_patches.py')
+if ($LASTEXITCODE -ne 0) { throw 'A patch for social-auto-upload no longer applies; check apply_patches.py' }
 & $python -m patchright install chromium
 Write-Output 'setup complete'

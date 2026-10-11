@@ -149,7 +149,8 @@ export async function getMaterial(pool, materialId) {
     pool.query(`SELECT id, kind, '/media/' || file_path AS url, original_name, size_bytes FROM leadgen.material_files WHERE material_id = $1 ORDER BY sort_order`, [materialId]),
     pool.query(`
       SELECT t.id, t.platform, t.status, t.title, t.body, t.topics, t.scheduled_at, t.confirmed_at, t.published_at, t.post_url,
-             t.error_message, t.body IS NOT NULL AS has_body, a.account_name, c.display_name AS confirmed_by_name,
+             t.error_message, CASE WHEN t.error_screenshot IS NOT NULL THEN '/media/' || t.error_screenshot END AS error_screenshot_url,
+             t.body IS NOT NULL AS has_body, a.account_name, c.display_name AS confirmed_by_name,
              (SELECT count(*)::int FROM leadgen.publish_task_versions v WHERE v.task_id = t.id) AS version_count
       FROM leadgen.publish_tasks t
       LEFT JOIN leadgen.publish_accounts a ON a.id = t.account_id

@@ -60,17 +60,49 @@ def connect() -> psycopg.Connection:
     )
 
 
-def sau(*args: str, timeout: int = 120, capture: bool = True) -> subprocess.CompletedProcess:
+def sau(*args: str, timeout: int = 120, capture: bool = True, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     """调用发布组件的命令行。登录状态文件按账号编号命名，放在 publisher/state/cookies。"""
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", **(extra_env or {})}
     return subprocess.run(
         [sys.executable, "sau_cli.py", *args], cwd=VENDOR, env=env, timeout=timeout,
         capture_output=capture, text=True, encoding="utf-8", errors="replace",
     )
 
 
+def run_upload(conn: psycopg.Connection, task: dict, args: list[str], screenshot: Path) -> tuple[int, str]:
+    """带窗口运行一次上传。平台要求短信验证时发通知，等人在弹出的窗口里输入。返回退出码和输出。"""
+    flag = HERE / "state" / f"sms_waiting_{task['account_id']}.flag"
+    flag.unlink(missing_ok=True)
+    log_file = HERE / "state" / f"upload_{task['id']}.log"
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HZ_FAILURE_SCREENSHOT": str(screenshot), "HZ_SMS_FLAG": str(flag)}
+    started = time.monotonic()
+    notified = False
+    with open(log_file, "w", encoding="utf-8", errors="replace") as output:
+        process = subprocess.Popen([sys.executable, "sau_cli.py", *args, "--headed"], cwd=VENDOR, env=env, stdout=output, stderr=subprocess.STDOUT)
+        while process.poll() is None:
+            if not notified and flag.exists():
+                notified = True
+                print(f"抖音要求短信验证：请在弹出的浏览器窗口里输入手机收到的验证码，然后点“验证”。（{task['account_name']}）")
+                notify(conn, "抖音要求短信验证", f"正在发布“{task['topic']}”。请在这台电脑弹出的浏览器窗口里输入手机收到的验证码，10 分钟内有效。",
+                       f"/publishing.html?id={task['material_id']}", task["confirmed_by"])
+            if time.monotonic() - started > UPLOAD_TIMEOUT_SECONDS:
+                process.kill()
+                process.wait()
+                flag.unlink(missing_ok=True)
+                raise subprocess.TimeoutExpired(args, UPLOAD_TIMEOUT_SECONDS)
+            time.sleep(1)
+    flag.unlink(missing_ok=True)
+    text = log_file.read_text(encoding="utf-8", errors="replace")
+    log_file.unlink(missing_ok=True)
+    return process.returncode, text
+
+
 def last_lines(text: str, limit: int = 300) -> str:
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    # 组件报错的最后一行通常是 “RuntimeError: 原因”，只留原因。
+    for line in reversed(lines):
+        if line.startswith(("RuntimeError:", "ValueError:")):
+            return line.split(":", 1)[1].strip()[:limit]
     return " / ".join(lines[-3:])[-limit:]
 
 
@@ -183,8 +215,19 @@ def claim_due_task(conn: psycopg.Connection) -> dict | None:
         return task
 
 
+def failure_screenshot(task: dict) -> tuple[Path, str]:
+    """失败截图存在素材目录下，页面上可以直接点开看。返回磁盘路径和相对路径。"""
+    relative = f"publish-failures/{task['id']}.png"
+    path = MEDIA_DIR / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path, relative
+
+
 def fail(conn: psycopg.Connection, task: dict, reason: str) -> None:
-    conn.execute("UPDATE leadgen.publish_tasks SET status = 'failed', error_message = %s, updated_at = now() WHERE id = %s", (reason[:500], task["id"]))
+    path, relative = failure_screenshot(task)
+    conn.execute(
+        "UPDATE leadgen.publish_tasks SET status = 'failed', error_message = %s, error_screenshot = %s, updated_at = now() WHERE id = %s",
+        (reason[:500], relative if path.exists() else None, task["id"]))
     notify(conn, f"{PLATFORM_LABEL[task['platform']]}发布失败", f"{task['topic']}：{reason[:200]}", f"/publishing.html?id={task['material_id']}", task["confirmed_by"])
     print(f"失败：{task['topic']}（{PLATFORM_LABEL[task['platform']]}）{reason}")
 
@@ -212,13 +255,15 @@ def publish(conn: psycopg.Connection, task: dict) -> None:
         args = [platform, "upload-video", "--account", str(task["account_id"]), "--file", videos[0], "--title", title, "--desc", task["body"], "--tags", tags]
     else:
         args = [platform, "upload-note", "--account", str(task["account_id"]), "--images", *images, "--title", title, "--note", task["body"], "--tags", tags]
+    screenshot, _ = failure_screenshot(task)
+    screenshot.unlink(missing_ok=True)
     try:
-        result = sau(*args, timeout=UPLOAD_TIMEOUT_SECONDS)
+        returncode, output = run_upload(conn, task, args, screenshot)
     except subprocess.TimeoutExpired:
         fail(conn, task, "发布超过 15 分钟没有完成")
         return
-    if result.returncode != 0:
-        fail(conn, task, last_lines(result.stderr or result.stdout) or "发布程序异常退出")
+    if returncode != 0:
+        fail(conn, task, last_lines(output) or "发布程序异常退出")
         return
     conn.execute("UPDATE leadgen.publish_tasks SET status = 'published', published_at = now(), error_message = NULL, updated_at = now() WHERE id = %s", (task["id"],))
     print(f"已发布：{task['topic']}（{PLATFORM_LABEL[task['platform']]}，{task['account_name']}）")
