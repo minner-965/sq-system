@@ -54,10 +54,41 @@ function renderScores(candidates) {
     </details>`).join('<div style="height:10px"></div>') : '<div class="state">没有评分记录</div>';
 }
 
+let timeline = [];
+
 function renderTimeline(activities) {
-  byId('timeline').innerHTML = activities.length ? `<ul class="timeline">${activities.map(item => `
-    <li><div class="when"><span>${dateTime(item.occurred_at)}</span><span>${escapeHtml(item.sector_name)} · ${escapeHtml(item.activity_name)}</span><span>${escapeHtml(item.created_by_name || '')}</span></div>
-    <p>${escapeHtml(item.content)}</p></li>`).join('')}</ul>` : '<div class="state">还没有跟进记录</div>';
+  timeline = activities;
+  // 每条记录是一个按钮：点开看完整内容和记录当时的客户情况。
+  byId('timeline').innerHTML = activities.length ? `<ul class="timeline">${activities.map((item, index) => `
+    <li><button class="record" type="button" data-record="${index}" aria-haspopup="dialog">
+      <span class="when"><span>${dateTime(item.occurred_at)}</span><span>${escapeHtml(item.sector_name)} · ${escapeHtml(item.activity_name)}</span><span>${escapeHtml(item.created_by_name || '')}</span></span>
+      <span class="text">${escapeHtml(item.content)}</span><span class="more">查看</span></button></li>`).join('')}</ul>` : '<div class="state">还没有跟进记录</div>';
+}
+
+function openRecord(item) {
+  const then = item.snapshot;
+  const range = (low, high, unit) => (low == null && high == null ? null : `${low ?? '不限'} – ${high ?? '不限'} ${unit}`);
+  const rows = then ? [
+    ['阶段', then.stage_name], ['负责人', then.owner_name], ['联系人', then.contact_name], ['联系电话', then.contact_phone],
+    ['下次跟进时间', then.next_follow_up_at && dateTime(then.next_follow_up_at)], ['看场预约时间', then.viewing_at && dateTime(then.viewing_at)],
+    ['需要的业态', { office: '写字楼', retail: '商铺' }[then.need_property_type]], ['面积需求', range(then.need_area_min, then.need_area_max, '㎡')],
+    ['预算', then.need_budget_per_sqm != null ? `${then.need_budget_per_sqm} 元/㎡·月` : null], ['需要明火', then.need_open_flame ? '是' : null],
+    ['意向房源', then.intended_property_label], ['意向服务', then.intended_service],
+    ['意向面积', then.intended_area_sqm != null ? `${then.intended_area_sqm} ㎡` : null], ['意向价', then.intended_price != null ? `${then.intended_price} 元/㎡·月` : null]
+  ].filter(([, value]) => value != null && value !== '') : [];
+  byId('record-title').textContent = `${item.sector_name} · ${item.activity_name}`;
+  byId('record-body').innerHTML = `
+    <div class="facts">
+      <div><span>发生时间</span><b>${dateTime(item.occurred_at)}</b></div>
+      <div><span>记录人</span><b>${escapeHtml(item.created_by_name || '—')}</b></div>
+      <div><span>录入时间</span><b>${dateTime(item.created_at)}</b></div>
+    </div>
+    <h4 class="sub-title">记录内容</h4>
+    <p class="record-text">${escapeHtml(item.content)}</p>
+    <h4 class="sub-title">当时的客户情况</h4>
+    ${rows.length ? `<dl class="record-then">${rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(String(value))}</dd></div>`).join('')}</dl>`
+    : `<p class="meta">${then ? '当时还没有填写客户情况' : '这条记录是早些时候写的，当时没有留存客户情况'}</p>`}`;
+  byId('record').showModal();
 }
 
 function trackCard(track) {
@@ -195,6 +226,13 @@ byId('tracks').addEventListener('submit', async event => {
   }
 });
 
+byId('timeline').addEventListener('click', event => {
+  const button = event.target.closest('[data-record]');
+  if (button) openRecord(timeline[Number(button.dataset.record)]);
+});
+byId('record-close').addEventListener('click', () => byId('record').close());
+// 点弹窗外面的灰色区域也能关。
+byId('record').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
 byId('retry').addEventListener('click', load);
 if (companyId) await load();
 else { byId('error-text').textContent = '没有指定企业'; byId('error').hidden = false; }
