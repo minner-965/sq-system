@@ -44,7 +44,16 @@ WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
 
 大模型调用没有用 SDK：DeepSeek、智谱、通义都兼容 OpenAI 的 `chat/completions`，一个 `fetch` 请求就够，封装在 `src/llm/llmClient.js`。
 
-抖音发布要用的 social-auto-upload、Playwright 属于第二阶段，引入时再登记并锁定版本。
+### WP06 第二阶段：发布程序（`publisher/`，Python）
+
+| 用途 | 采用 | 版本 | 来源 | 许可 | 状态（2026-10-11 查） | 集成边界 |
+|---|---|---|---|---|---|---|
+| 抖音等平台的扫码登录和上传 | social-auto-upload | 固定在提交 `0012d2c`（2026-09-03） | https://github.com/dreammis/social-auto-upload | MIT | 活跃，项目自述处于重构期 | 不改它的代码，不进本仓库：`publisher/setup.ps1` 下载到 `publisher/vendor/`（不进 Git）并固定版本。只调用它的命令行 `sau <平台> login / check / upload-note / upload-video`，不用它自带的网页界面和数据库。升级前先在测试账号上回归 |
+| 浏览器自动化 | patchright | 1.58.2 | https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-python | Apache-2.0 | 随 social-auto-upload 安装 | 它是 social-auto-upload 指定的依赖，我们不直接调用 |
+| 同上（组件的部分平台代码直接引用） | playwright | 1.52.0 | https://github.com/microsoft/playwright-python | Apache-2.0 | 版本取自组件的 requirements.txt | 只为让组件的命令行能加载 |
+| 发布程序读写数据库 | psycopg（binary） | 3.3.5 | https://github.com/psycopg/psycopg | LGPL-3.0 | 活跃 | 作为库调用，不改它的代码 |
+
+要知道的：social-auto-upload 发布成功后不返回帖子链接；失败时也不交出截图。这两项要靠我们自己读创作者后台补上（见进度记录）。
 
 ## WP05 的选型记录（2026-10-11）
 

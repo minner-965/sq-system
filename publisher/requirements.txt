@@ -1,0 +1,5 @@
+# Publisher's own dependencies. social-auto-upload and its declared dependencies are installed by
+# setup.ps1 from the pinned commit.
+psycopg[binary]==3.3.5
+# The uploader's command line imports this for some platforms but does not declare it; version from its requirements.txt.
+playwright==1.52.0

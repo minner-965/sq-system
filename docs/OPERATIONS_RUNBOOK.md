@@ -50,6 +50,19 @@ docker compose down                   # 停止，保留数据
 - 需求信号要 `.env` 里有 `BAIDU_SEARCH_KEY`（百度千帆）和 `DEEPSEEK_API_KEY`，检查：`npm run check:search-llm`。任一个没填就不查需求信号，其他功能不受影响。百度搜索不要开通“后付费”，免费额度用完当天就停。
 - 换大模型服务商：`.env` 里填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（任何兼容 OpenAI 接口的服务都行），重建 `app` 和 `worker`。
 
+## 内容发布程序（publisher）
+
+发布程序是 Python 写的，直接跑在这台电脑上（不在 Docker 里），因为扫码登录要弹出浏览器窗口。
+
+- 首次安装或换电脑：在仓库根目录执行 `powershell -ExecutionPolicy Bypass -File publisher\setup.ps1`。它会建虚拟环境、下载并固定开源发布组件、安装自动化用的浏览器。可重复运行。
+- 扫码登录：`publisher\.venv\Scripts\python.exe publisher\hz_publisher.py login 抖音测试号`（最后是“内容发布”页里的账号名称）。会弹出浏览器，用对应平台的手机 App 扫码。
+- 检查登录是否还有效：`publisher\.venv\Scripts\python.exe publisher\hz_publisher.py check`
+- 常驻运行：`publisher\.venv\Scripts\python.exe publisher\hz_publisher.py run`。它每 20 秒看一次有没有到点的已确认任务，一次只发一条。不开它，确认过的内容不会发出去。
+- 只处理一遍：把上面的 `run` 换成 `once`。
+- 登录状态存在 `publisher/state/`，等同于账号密码，不进 Git，不要外传；备份时带上它。
+- 发布失败不会自动重试。处理完原因后，在页面上重新确认。
+- 程序被中断时正在发的那条，会标为失败并提示“不确定是否已经发出”，要到平台上看一眼再决定是否重发。
+
 ## 房源导入
 
 在 `services/demo-dashboard` 下运行 `npm run import:properties`。脚本从 `E:\claude\训练数据`（只读）读取推租表和平面图，写入房源、招商政策和项目信息，并生成 `docs/hz/房源导入报告.md`。可重复运行；房源的跟进状态不会被覆盖。平面图图片生成在 `data/media/floorplans/`，不进 Git。
