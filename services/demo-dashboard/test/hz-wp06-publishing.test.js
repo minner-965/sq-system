@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLATFORMS, buildPrompt, findForbidden, normalizeDraft, writeDraft } from '../src/publishing/copywriter.js';
+import { PLATFORMS, buildPrompt, findForbidden, normalizeDraft, styleGuide, unsupportedPraise, writeDraft } from '../src/publishing/copywriter.js';
 import { classifyUploads, parseMaterialFields } from '../src/publishing/publishingService.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -51,15 +51,64 @@ test('the writing brief carries only supplied facts and forbids invented ones', 
 test('a draft that breaks the rules is sent back to the model once with the reasons', async () => {
   const replies = [
     { title: '写字楼', body: '底价 35 元可谈', topics: ['a', 'b', 'c'] },
-    { title: '黄埔写字楼出租', body: '193 平精装，欢迎咨询。', topics: ['广州写字楼', '黄埔', '恒兆广场'] }
+    { title: '黄埔写字楼出租', body: '193 平精装，欢迎咨询。', topics: ['广州写字楼', '黄埔', '恒兆广场'] },
+    { unsupported: [], title: '黄埔写字楼出租', body: '193 平精装，欢迎咨询。', topics: ['广州写字楼', '黄埔', '恒兆广场'] }
   ];
   const asked = [];
   const llm = { async chatJson({ messages }) { asked.push(messages.length); return { data: replies.shift(), usage: { inputTokens: 100, outputTokens: 50 } }; } };
   const draft = await writeDraft({ llm, platform: 'douyin', material, property, project: null, floorPrices: [35] });
-  assert.deepEqual(asked, [2, 4]);
-  assert.deepEqual(draft.problems, []);
+  // 两次写稿，再加一次校对。
+  assert.deepEqual(asked, [2, 4, 2]);
+  assert.deepEqual([draft.problems, draft.removed], [[], []]);
   assert.equal(draft.body, '193 平精装，欢迎咨询。');
-  assert.deepEqual(draft.usage, { inputTokens: 200, outputTokens: 100 });
+  assert.deepEqual(draft.usage, { inputTokens: 300, outputTokens: 150 });
+});
+
+test('a cold proofread removes claims the supplied facts do not support', async () => {
+  const topics = ['广州写字楼', '黄埔', '恒兆广场'];
+  const written = { title: '黄埔写字楼出租', body: '193 平精装，楼下停车位充足，欢迎咨询。', topics };
+  const prompts = [];
+  const proofread = review => ({ async chatJson({ messages }) { prompts.push(messages); return { data: prompts.length % 2 ? written : review, usage: { inputTokens: 1, outputTokens: 1 } }; } });
+
+  const fixed = await writeDraft({ llm: proofread({ unsupported: ['楼下停车位充足'], title: '黄埔写字楼出租', body: '193 平精装，欢迎咨询。', topics }), platform: 'douyin', material, property, project: null, floorPrices: [35] });
+  assert.equal(fixed.body, '193 平精装，欢迎咨询。');
+  assert.deepEqual(fixed.removed, ['楼下停车位充足']);
+  assert.match(prompts[1][0].content, /资料里没有依据的说法都要找出来/);
+  assert.match(prompts[1][1].content, /资料：\n主题：1 栋 13 层写字楼招租[\s\S]+文案：/);
+
+  // 校对把稿子改坏了（正文删空）就不用它的。
+  const kept = await writeDraft({ llm: proofread({ unsupported: ['全部'], title: '', body: '', topics: [] }), platform: 'douyin', material, property, project: null, floorPrices: [35] });
+  assert.deepEqual([kept.body, kept.removed], [written.body, []]);
+});
+
+test('each platform has its own style file and the writer is told to follow it', () => {
+  for (const platform of Object.keys(PLATFORMS)) {
+    const guide = styleGuide(platform);
+    assert.match(guide, new RegExp(`^# ${PLATFORMS[platform].label} · 文案风格`));
+    assert.match(guide, /## 平台特点[\s\S]+## 按内容类型/);
+    assert.match(buildPrompt({ platform, material, property, project: null })[0].content, new RegExp(`<风格文件>\\n# ${PLATFORMS[platform].label}`));
+  }
+  assert.match(styleGuide('xiaohongshu'), /## 话题（5–8 个/);
+  assert.match(styleGuide('moments'), /不要标题，不带话题，100 字以内/);
+  assert.notEqual(styleGuide('douyin'), styleGuide('channels'));
+});
+
+test('praise the facts do not state is caught and sent back for rewriting', async () => {
+  const factsText = '主题：写字楼招租\n补充说明：南向采光，配套齐全';
+  assert.deepEqual(unsupportedPraise('精装交付，拎包入驻，配套齐全，性价比高', factsText), ['拎包入驻', '性价比']);
+  assert.deepEqual(unsupportedPraise('193 平，3 个隔间，欢迎咨询', factsText), []);
+
+  const topics = ['广州写字楼', '黄埔', '恒兆广场'];
+  const replies = [
+    { title: '黄埔写字楼', body: '193 平精装，拎包入驻。', topics },
+    { title: '黄埔写字楼', body: '193 平精装，可配家具。', topics },
+    { unsupported: [], title: '黄埔写字楼', body: '193 平精装，可配家具。', topics }
+  ];
+  const seen = [];
+  const llm = { async chatJson({ messages }) { seen.push(messages.at(-1).content); return { data: replies.shift(), usage: { inputTokens: 1, outputTokens: 1 } }; } };
+  const draft = await writeDraft({ llm, platform: 'douyin', material, property, project: null, floorPrices: [35] });
+  assert.match(seen[1], /用了资料里没有依据的评价：拎包入驻/);
+  assert.deepEqual([draft.body, draft.problems], ['193 平精装，可配家具。', []]);
 });
 
 test('material uploads need a topic, a type, a platform and only images or one video', () => {

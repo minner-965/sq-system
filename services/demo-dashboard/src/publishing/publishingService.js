@@ -212,7 +212,7 @@ export async function generateDrafts(pool, { materialId, platform = null, user, 
       await saveVersion(client, task, draft, 'model', user.id);
       await client.query('COMMIT');
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
-    results.push({ platform: task.platform, saved: true, problems: draft.problems });
+    results.push({ platform: task.platform, saved: true, problems: draft.problems, removed: draft.removed });
   }
   return { results };
 }
@@ -307,12 +307,55 @@ export async function listVersions(pool, taskId) {
   return { items: rows };
 }
 
+// 发布程序已经接入的平台。其余平台可以先建账号，但还不能扫码和发布。
+export const CONNECTED_PLATFORMS = Object.freeze(['douyin']);
+const PUBLISHER_ONLINE_SECONDS = 90;
+
 export async function listAccounts(pool) {
+  const [{ rows }, { rows: [beat] }] = await Promise.all([
+    pool.query(`
+      SELECT a.id, a.platform, a.account_name, a.account_type, a.purpose, a.login_status, a.last_login_at, a.daily_limit, a.is_paused,
+             (SELECT count(*)::int FROM leadgen.publish_tasks t WHERE t.account_id = a.id AND t.status = 'confirmed') AS queued,
+             (SELECT count(*)::int FROM leadgen.publish_tasks t WHERE t.account_id = a.id AND t.status = 'published'
+                AND t.published_at >= date_trunc('day', now())) AS published_today,
+             r.status AS login_request_status, r.message AS login_request_message, r.created_at AS login_requested_at
+      FROM leadgen.publish_accounts a
+      LEFT JOIN LATERAL (SELECT status, message, created_at FROM leadgen.publish_login_requests WHERE account_id = a.id ORDER BY created_at DESC LIMIT 1) r ON true
+      ORDER BY array_position(ARRAY['douyin', 'channels', 'xiaohongshu', 'moments'], a.platform), a.created_at`),
+    pool.query(`SELECT last_seen_at, last_seen_at > now() - make_interval(secs => $1) AS online FROM leadgen.publisher_heartbeat WHERE id = 1`, [PUBLISHER_ONLINE_SECONDS])
+  ]);
+  return {
+    publisher: { online: Boolean(beat?.online), last_seen_at: beat?.last_seen_at ?? null },
+    items: rows.map(row => ({ ...row, platform_name: PLATFORMS[row.platform].label, connected: CONNECTED_PLATFORMS.includes(row.platform) }))
+  };
+}
+
+/** Asks the publisher on this computer to open the QR login window for an account. */
+export async function requestLogin(pool, { accountId, user }) {
+  requireUuid(accountId, 'ACCOUNT_NOT_FOUND');
+  const { rows: [account] } = await pool.query('SELECT id, platform FROM leadgen.publish_accounts WHERE id = $1', [accountId]);
+  if (!account) throw fail(404, 'ACCOUNT_NOT_FOUND', '没有找到这个账号');
+  if (!CONNECTED_PLATFORMS.includes(account.platform)) throw fail(409, 'PLATFORM_NOT_CONNECTED', `${PLATFORMS[account.platform].label}还没有接入，暂时不能扫码登录`);
+  const { rows: [beat] } = await pool.query(`SELECT last_seen_at > now() - make_interval(secs => $1) AS online FROM leadgen.publisher_heartbeat WHERE id = 1`, [PUBLISHER_ONLINE_SECONDS]);
+  if (!beat?.online) throw fail(409, 'PUBLISHER_OFFLINE', '发布程序没有在运行。请先在这台电脑上双击 publisher 文件夹里的 start-publisher.cmd');
+  const { rows: [open] } = await pool.query(`SELECT 1 FROM leadgen.publish_login_requests WHERE account_id = $1 AND status IN ('queued', 'opened')`, [accountId]);
+  if (open) throw fail(409, 'LOGIN_ALREADY_REQUESTED', '已经在等扫码了，请看电脑上弹出的浏览器窗口');
+  await pool.query('INSERT INTO leadgen.publish_login_requests (account_id, requested_by) VALUES ($1, $2)', [accountId, user.id]);
+  return { status: 'queued' };
+}
+
+/** Tasks that have copy, by the day they are scheduled or were published, for the calendar. */
+export async function calendarTasks(pool, month) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) throw fail(400, 'CALENDAR_MONTH_INVALID', '月份不正确');
   const { rows } = await pool.query(`
-    SELECT a.id, a.platform, a.account_name, a.account_type, a.purpose, a.login_status, a.last_login_at, a.daily_limit, a.is_paused,
-           (SELECT count(*)::int FROM leadgen.publish_tasks t WHERE t.account_id = a.id AND t.status = 'confirmed') AS queued
-    FROM leadgen.publish_accounts a ORDER BY array_position(ARRAY['douyin', 'channels', 'xiaohongshu', 'moments'], a.platform), a.created_at`);
-  return { items: rows.map(row => ({ ...row, platform_name: PLATFORMS[row.platform].label })) };
+    SELECT t.id, t.material_id, m.topic, t.platform, t.status, COALESCE(t.published_at, t.scheduled_at) AS at,
+           to_char(COALESCE(t.published_at, t.scheduled_at), 'YYYY-MM-DD') AS day
+    FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
+    WHERE t.status IN ('confirmed', 'publishing', 'published', 'failed') AND COALESCE(t.published_at, t.scheduled_at) IS NOT NULL
+      AND COALESCE(t.published_at, t.scheduled_at) >= ($1 || '-01')::date - interval '7 days'
+      AND COALESCE(t.published_at, t.scheduled_at) < ($1 || '-01')::date + interval '1 month' + interval '7 days'
+    ORDER BY 6`, [month]);
+  return { month, items: rows.map(row => ({ ...row, platform_name: PLATFORMS[row.platform].label, status_name: TASK_STATUS_NAME[row.status] })) };
 }
 
 export async function addAccount(pool, input) {
@@ -335,8 +378,14 @@ export async function updateAccount(pool, accountId, input) {
   requireUuid(accountId, 'ACCOUNT_NOT_FOUND');
   const limit = input.daily_limit === undefined ? null : Number(input.daily_limit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 50)) throw fail(400, 'ACCOUNT_LIMIT_INVALID', '每日上限应为 1–50');
+  const name = input.account_name === undefined ? null : String(input.account_name).trim();
+  if (name !== null && (!name || name.length > 40)) throw fail(400, 'ACCOUNT_NAME_INVALID', '请填写账号名称（不超过 40 字）');
   const { rowCount } = await pool.query(`
-    UPDATE leadgen.publish_accounts SET is_paused = COALESCE($2, is_paused), daily_limit = COALESCE($3, daily_limit), updated_at = now() WHERE id = $1`,
-  [accountId, typeof input.is_paused === 'boolean' ? input.is_paused : null, limit]);
+    UPDATE leadgen.publish_accounts SET is_paused = COALESCE($2, is_paused), daily_limit = COALESCE($3, daily_limit),
+      account_name = COALESCE($4, account_name), updated_at = now() WHERE id = $1`,
+  [accountId, typeof input.is_paused === 'boolean' ? input.is_paused : null, limit, name]).catch(error => {
+    if (error.code === '23505') throw fail(409, 'ACCOUNT_EXISTS', '这个平台已经有同名的账号');
+    throw error;
+  });
   if (!rowCount) throw fail(404, 'ACCOUNT_NOT_FOUND', '没有找到这个账号');
 }

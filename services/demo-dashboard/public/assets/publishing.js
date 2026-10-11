@@ -4,10 +4,7 @@ const byId = id => document.getElementById(id);
 const materialId = new URLSearchParams(location.search).get('id');
 const shell = await initShell({ page: 'publishing' });
 const canWrite = shell.user.can_write;
-const isAdmin = shell.user.role === 'ADMIN';
-const off = canWrite ? '' : ' disabled';
 const STATUS_CLASS = { draft: 'st-warn', confirmed: 'st-wait', publishing: 'st-wait', published: 'st-ok', failed: 'st-bad', withdrawn: 'st-wait' };
-const LOGIN_NAME = { never: '还没有登录过', ok: '登录正常', expired: '需重新扫码' };
 
 const dateTime = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const toLocalInput = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -50,24 +47,54 @@ async function loadList() {
   }
 }
 
-async function loadAccounts() {
-  const data = await api('/api/publishing/accounts');
-  byId('account-list').innerHTML = data.items.length ? `<table>
-    <thead><tr><th scope="col">平台</th><th scope="col">账号</th><th scope="col">登录状态</th><th scope="col">每日上限</th><th scope="col">待发布</th><th scope="col"><span class="sr">操作</span></th></tr></thead>
-    <tbody>${data.items.map(account => `<tr>
-      <td>${escapeHtml(account.platform_name)}</td><td>${escapeHtml(account.account_name)}</td>
-      <td><span class="status ${account.login_status === 'ok' ? 'st-ok' : 'st-warn'}">${LOGIN_NAME[account.login_status]}</span>${account.is_paused ? ' <span class="status st-wait">已暂停</span>' : ''}</td>
-      <td class="num">${account.daily_limit} 条</td><td class="num">${account.queued} 条</td>
-      <td class="acts">${isAdmin ? `<button class="btn sm" type="button" data-pause="${account.id}" data-paused="${account.is_paused}">${account.is_paused ? '恢复' : '暂停'}</button>` : ''}</td>
-    </tr>`).join('')}</tbody></table>` : '<div class="state"><b>还没有发布账号</b>管理员添加后才能确认发布</div>';
-  byId('account-form').hidden = !isAdmin;
+// ---------- 排期日历 ----------
+
+const pad = value => String(value).padStart(2, '0');
+const dayKey = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+async function loadCalendar() {
+  const month = `${calendarMonth.getFullYear()}-${pad(calendarMonth.getMonth() + 1)}`;
+  byId('cal-title').textContent = `${calendarMonth.getFullYear()} 年 ${calendarMonth.getMonth() + 1} 月`;
+  try {
+    const { items } = await api(`/api/publishing/calendar?month=${month}`);
+    // 周一开头，补齐前后两头，整周整周地显示。
+    const first = new Date(calendarMonth);
+    first.setDate(1 - ((first.getDay() + 6) % 7));
+    const today = dayKey(new Date());
+    const cells = [];
+    for (let index = 0; index < 42; index += 1) {
+      const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
+      if (index >= 35 && date.getMonth() !== calendarMonth.getMonth()) break;
+      const key = dayKey(date);
+      const tasks = items.filter(item => dayKey(new Date(item.at)) === key);
+      cells.push(`<div class="cal-day${date.getMonth() === calendarMonth.getMonth() ? '' : ' other'}${key === today ? ' today' : ''}">
+        <span class="cal-date">${date.getDate()}</span>
+        ${tasks.map(task => `<a class="cal-task ${STATUS_CLASS[task.status]}" href="/publishing.html?id=${task.material_id}" title="${escapeHtml(task.topic)} · ${escapeHtml(task.status_name)}">
+          <b>${new Date(task.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })} ${escapeHtml(task.platform_name)}</b><span>${escapeHtml(task.topic)}</span></a>`).join('')}
+      </div>`);
+    }
+    byId('calendar').innerHTML = `<div class="cal-grid"><div class="cal-head">${['一', '二', '三', '四', '五', '六', '日'].map(day => `<span>周${day}</span>`).join('')}</div>${cells.join('')}</div>
+      <p class="foot-note cal-legend"><span class="status st-wait">待发布</span> <span class="status st-ok">已发布</span> <span class="status st-bad">发布失败</span>　只显示已经确认过的内容；点一条可以进去改时间或撤回。${items.length ? '' : '这个月还没有排期。'}</p>`;
+  } catch (error) {
+    byId('calendar').innerHTML = `<div class="state"><b>日历没有加载出来</b>${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function showView(view) {
+  document.querySelectorAll('[data-view]').forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.view === view)));
+  byId('list').hidden = view !== 'list';
+  byId('mine-toggle').hidden = view !== 'list';
+  byId('calendar').hidden = view !== 'calendar';
+  byId('cal-nav').hidden = view !== 'calendar';
+  if (view === 'calendar') loadCalendar();
+  history.replaceState(null, '', view === 'calendar' ? '#calendar' : location.pathname);
 }
 
 function setupUpload() {
   byId('content-type').innerHTML = options(config.content_types.map(type => [type.key, type.label]));
   byId('property').innerHTML = options(config.properties.map(unit => [unit.id, `${unit.building} ${unit.unit_no}（${unit.floor} 层，${unit.area_sqm} ㎡）`]), '不关联');
   byId('platform-boxes').innerHTML = config.platforms.map(platform => `<label class="check"><input type="checkbox" name="target_platforms" value="${platform.key}" checked>${platform.label}</label>`).join('');
-  byId('account-platform').innerHTML = options(config.platforms.map(platform => [platform.key, platform.label]));
   const syncProperty = () => { byId('property-field').hidden = byId('content-type').value !== 'property'; };
   byId('content-type').addEventListener('change', syncProperty);
   syncProperty();
@@ -171,7 +198,9 @@ async function generate(button, platform) {
     const { results } = await send(`/api/publishing/materials/${materialId}/drafts`, 'POST', { platform });
     await loadDetail();
     const refused = results.filter(result => !result.saved);
-    notice(refused.length ? `有 ${refused.length} 个平台的文案没有保存：${refused.map(result => result.problems.join('；')).join('；')}。请手写或重新生成。` : '文案已生成，请逐条核对事实后再确认。');
+    const removed = results.flatMap(result => result.removed || []);
+    notice(refused.length ? `有 ${refused.length} 个平台的文案没有保存：${refused.map(result => result.problems.join('；')).join('；')}。请手写或重新生成。`
+      : `文案已生成，请逐条核对事实后再确认。${removed.length ? `校对时去掉了 ${removed.length} 处资料里没有依据的说法（如“${removed[0].slice(0, 20)}”）。` : ''}`);
   } catch (error) {
     notice(error.message);
     button.disabled = false;
@@ -236,21 +265,17 @@ if (materialId) {
 } else {
   setupUpload();
   byId('mine').addEventListener('change', loadList);
-  byId('account-list').addEventListener('click', async event => {
-    const button = event.target.closest('[data-pause]');
-    if (!button) return;
-    await send(`/api/publishing/accounts/${button.dataset.pause}`, 'PATCH', { is_paused: button.dataset.paused !== 'true' }).catch(error => notice(error.message));
-    await loadAccounts();
+  byId('view-tabs').addEventListener('click', event => {
+    const tab = event.target.closest('[data-view]');
+    if (tab) showView(tab.dataset.view);
   });
-  byId('account-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    byId('account-error').textContent = '';
-    try {
-      await send('/api/publishing/accounts', 'POST', { platform: byId('account-platform').value, account_name: byId('account-name').value });
-      event.target.reset();
-      await loadAccounts();
-    } catch (error) { byId('account-error').textContent = error.message; }
+  byId('cal-nav').addEventListener('click', event => {
+    const button = event.target.closest('[data-month]');
+    if (!button) return;
+    const step = Number(button.dataset.month);
+    calendarMonth = step ? new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + step, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    loadCalendar();
   });
   await loadList();
-  await loadAccounts().catch(() => {});
+  if (location.hash === '#calendar') showView('calendar');
 }

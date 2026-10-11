@@ -32,20 +32,25 @@ const CLASSIFY_PROMPT = `你在帮广州恒兆广场（商铺写字楼招租、�
 - cooperation：谈合作、品牌入驻、供应商或渠道合作
 - booking：想订酒店房间、订餐、订包间、问团餐或协议价
 - chat：普通互动，夸奖、吐槽、闲聊、@朋友，没有明确需求
-- spam：广告、引流、无意义刷屏
+- spam：广告、引流、无意义刷屏。别人来推销自己的服务或招人（代运营、涨粉、兼职、刷单、“私我”“加V”）都算这一类
+注意：问会议室、包间、订餐、住宿、长住、团建吃饭的属于 booking；问车位、家具、签约年限、能否注册公司、能否做餐饮这类租赁条件的属于 inquiry。
 只输出 JSON：{"intent":"inquiry","reason":"不超过30字，说明依据"}`;
 
-/** Keyword pre-filter first; the model is only asked when a keyword hits or the message is a direct message. */
-export async function classifyMessage({ message, keywords, llm }) {
+/** Verdict from keywords alone: used when the model is not configured or is down. */
+export function classifyByKeywords(message, keywords, note) {
   const hits = matchedKeywords(message.content, keywords);
-  if (!hits.length && message.kind === 'comment') {
-    return { intent: 'chat', reason: '没有出现询价、预订一类的关键词', source: 'keyword', usage: null };
-  }
-  if (!llm.configured) {
-    return hits.length
-      ? { intent: 'inquiry', reason: `出现关键词：${hits.slice(0, 3).join('、')}（还没有配置大模型，只按关键词判断）`, source: 'keyword', usage: null }
-      : { intent: 'chat', reason: '没有出现询价、预订一类的关键词', source: 'keyword', usage: null };
-  }
+  return hits.length
+    ? { intent: 'inquiry', reason: `出现关键词：${hits.slice(0, 3).join('、')}（${note}，只按关键词判断）`, source: 'keyword', usage: null }
+    : { intent: 'chat', reason: `没有出现询价、预订一类的关键词（${note}）`, source: 'keyword', usage: null };
+}
+
+/**
+ * Every message goes to the model when one is configured. Self-testing showed a keyword
+ * pre-filter alone missed about half of real enquiries ("带家具不", "最短签多久"), and a
+ * classification costs a fraction of a cent, so keywords are only the fallback.
+ */
+export async function classifyMessage({ message, keywords, llm }) {
+  if (!llm.configured) return classifyByKeywords(message, keywords, '还没有配置大模型');
   const { data, usage } = await llm.chatJson({
     messages: [
       { role: 'system', content: CLASSIFY_PROMPT },
@@ -86,8 +91,8 @@ export async function classifyPending(pool, { llm, env = process.env, limit = 30
       await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, error_code, duration_ms) VALUES ($1, 'chat/completions', '意图分类', 'error', $2, $3)`,
         [llm.provider, error.code || error.name, Date.now() - started]);
       // 模型不可用时不卡住提醒：有关键词的先按意向消息处理，人来改。
-      const hits = matchedKeywords(message.content, settings.intent_keywords);
-      result = { intent: hits.length ? 'inquiry' : 'chat', reason: hits.length ? `出现关键词：${hits.slice(0, 3).join('、')}（大模型暂时不可用，只按关键词判断）` : '没有出现询价、预订一类的关键词', source: 'keyword', usage: null };
+      // 没命中关键词的会在模型恢复后由 auditKeywordMisses 再看一遍。
+      result = classifyByKeywords(message, settings.intent_keywords, '大模型暂时不可用');
     }
     if (result.usage) {
       await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, cost_cny, duration_ms) VALUES ($1, 'chat/completions', '意图分类', 'ok', $2, $3)`,
@@ -107,7 +112,79 @@ export async function classifyPending(pool, { llm, env = process.env, limit = 30
     [assignee, assignee ? null : 'admin', `${PLATFORM_NAME[message.platform]}有新的${INTENTS[result.intent].label}`,
       `${message.post_title ? `《${message.post_title.slice(0, 20)}》` : KIND_NAME[message.kind]}，${message.sender_name}：${message.content.slice(0, 30)}`]);
   }
-  return { classified: pending.length, leads };
+  const audit = await auditKeywordMisses(pool, { llm, env });
+  return { classified: pending.length, leads: leads + audit.recovered, audited: audit.audited, keywords_added: audit.keywordsAdded };
+}
+
+const AUDIT_PROMPT = `下面是广州恒兆广场（商铺写字楼招租、宜尚酒店、自营餐饮）帖子下的一批评论，它们没有命中询价关键词，被当成了普通互动。
+请逐条复查：有没有其实在表达需求的（问价格面积位置、想租、想看房看铺、谈合作入驻、想订房订餐）。
+只列出确实有需求的评论，其余不要列。对每条给出：
+- n：评论编号
+- intent：inquiry（询价或想租）、viewing（约看）、cooperation（合作入驻）、booking（订房订餐）之一
+- reason：不超过 30 字的依据
+- keyword：这条评论里最能代表需求、以后可以用来初筛的一个词，2–6 个字，必须是评论原文里连续出现的字，不要用“的”“了”“吗”这类虚词，也不要用人名地名
+只输出 JSON：{"items":[{"n":1,"intent":"viewing","reason":"...","keyword":"..."}]}。都没有需求就输出 {"items":[]}。`;
+
+/** A keyword the audit proposes is only accepted when it really occurs in the comment and is a plausible search word. */
+export function acceptKeyword(keyword, content, existing) {
+  const word = String(keyword || '').trim();
+  if (word.length < 2 || word.length > 6 || !content.includes(word) || existing.includes(word)) return null;
+  if (/^[\d\s\p{P}]+$/u.test(word) || /^(什么|怎么|可以|这个|那个|你们|我们|有的|一下|还是)$/.test(word)) return null;
+  return word;
+}
+
+/**
+ * Second look at comments the keyword filter waved through as ordinary interaction.
+ * Recovers the ones that do show intent and teaches the filter the word it missed.
+ */
+export async function auditKeywordMisses(pool, { llm, env = process.env, limit = 20 }) {
+  if (!llm.configured) return { audited: 0, recovered: 0, keywordsAdded: [] };
+  const { rows: batch } = await pool.query(`
+    SELECT id, platform, kind, publish_task_id, post_title, sender_name, content FROM leadgen.interaction_messages
+    WHERE intent = 'chat' AND intent_source = 'keyword' AND audited_at IS NULL ORDER BY created_at LIMIT $1`, [limit]);
+  if (!batch.length) return { audited: 0, recovered: 0, keywordsAdded: [] };
+  const started = Date.now();
+  let items;
+  try {
+    const { data, usage } = await llm.chatJson({
+      messages: [{ role: 'system', content: AUDIT_PROMPT }, { role: 'user', content: batch.map((message, index) => `${index + 1}. ${message.content}`).join('\n') }],
+      maxTokens: 800, temperature: 0
+    });
+    items = Array.isArray(data?.items) ? data.items : [];
+    await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, result_count, cost_cny, duration_ms) VALUES ($1, 'chat/completions', $2, 'ok', $3, $4, $5)`,
+      [llm.provider, `复查普通互动 ${batch.length} 条`, items.length, llmCost(usage, env), Date.now() - started]);
+  } catch (error) {
+    await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, error_code, duration_ms) VALUES ($1, 'chat/completions', '复查普通互动', 'error', $2, $3)`,
+      [llm.provider, error.code || error.name, Date.now() - started]);
+    return { audited: 0, recovered: 0, keywordsAdded: [] };
+  }
+  const { rows: [settings] } = await pool.query('SELECT intent_keywords FROM leadgen.inbox_settings WHERE id = 1');
+  const keywords = [...settings.intent_keywords];
+  const keywordsAdded = [];
+  let recovered = 0;
+  for (const item of items) {
+    const message = batch[Number(item?.n) - 1];
+    if (!message || !LEAD_INTENTS.includes(item.intent)) continue;
+    const reason = `复查时发现：${String(item.reason || '').trim().slice(0, 40) || '有需求'}`;
+    const assignee = await assigneeFor(pool, message.publish_task_id);
+    const { rowCount } = await pool.query(`
+      UPDATE leadgen.interaction_messages SET intent = $2, intent_reason = $3, intent_source = 'model', assignee_user_id = $4, classified_at = now(), updated_at = now()
+      WHERE id = $1 AND intent = 'chat' AND intent_source = 'keyword'`, [message.id, item.intent, reason, assignee]);
+    if (!rowCount) continue;
+    recovered += 1;
+    await pool.query(`
+      INSERT INTO leadgen.notifications (recipient_user_id, recipient_role, kind, title, body, link) VALUES ($1, $2, 'interaction', $3, $4, '/inbox.html')`,
+    [assignee, assignee ? null : 'admin', `${PLATFORM_NAME[message.platform]}有新的${INTENTS[item.intent].label}`, `${message.sender_name}：${message.content.slice(0, 30)}`]);
+    const word = acceptKeyword(item.keyword, message.content, keywords);
+    if (word) {
+      keywords.push(word);
+      keywordsAdded.push(word);
+      await pool.query('INSERT INTO leadgen.inbox_keyword_additions (keyword, from_message_id, example) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [word, message.id, message.content.slice(0, 200)]);
+    }
+  }
+  if (keywordsAdded.length) await pool.query('UPDATE leadgen.inbox_settings SET intent_keywords = $1, updated_at = now() WHERE id = 1', [keywords]);
+  await pool.query('UPDATE leadgen.interaction_messages SET audited_at = now() WHERE id = ANY($1)', [batch.map(message => message.id)]);
+  return { audited: batch.length, recovered, keywordsAdded };
 }
 
 const MESSAGE_COLUMNS = `i.id, i.platform, i.kind, i.post_title, i.post_url, i.publish_task_id, i.sender_name, i.sender_profile_url, i.content,

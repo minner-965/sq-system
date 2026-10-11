@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { CONTENT_TYPES, PLATFORMS } from './copywriter.js';
 import {
-  MAX_IMAGES, MAX_VIDEOS, addAccount, confirmTask, createMaterial, generateDrafts, getMaterial, listAccounts, listMaterials,
+  MAX_IMAGES, MAX_VIDEOS, addAccount, calendarTasks, confirmTask, requestLogin, createMaterial, generateDrafts, getMaterial, listAccounts, listMaterials,
   listVersions, updateAccount, updateDraft, withdrawTask
 } from './publishingService.js';
 
@@ -60,6 +60,10 @@ export function createPublishingRouter({ pool, auth, llm, mediaDir }) {
 
   router.get('/accounts', ...read, handle(async (_req, res) => res.json(await listAccounts(pool))));
   router.post('/accounts', ...admin, handle(async (req, res) => res.status(201).json(await addAccount(pool, req.body || {}))));
+  router.post('/accounts/:accountId/login', ...admin, handle(async (req, res) => {
+    res.status(202).json(await requestLogin(pool, { accountId: req.params.accountId, user: req.managementUser }));
+  }));
+  router.get('/calendar', ...read, handle(async (req, res) => res.json(await calendarTasks(pool, req.query.month))));
   router.patch('/accounts/:accountId', ...admin, handle(async (req, res) => {
     await updateAccount(pool, req.params.accountId, req.body || {});
     res.status(204).end();
