@@ -32,7 +32,7 @@ function card(item) {
     ${item.post_title ? `<div class="meta">来自帖子：${item.material_id ? `<a class="lk" href="/publishing.html?id=${item.material_id}">${escapeHtml(item.post_title)}</a>` : escapeHtml(item.post_title)}</div>` : ''}
     <p class="msg-text">${escapeHtml(item.content)}</p>
     <div class="msg-intent">${intentSelect}<span class="meta">${escapeHtml(item.intent_reason || '')}</span></div>
-    ${item.reply_status !== 'none' ? `<div class="meta ${item.reply_status === 'failed' ? 'late' : ''}">${REPLY_STATE[item.reply_status]}${item.reply_error ? `：${escapeHtml(item.reply_error)}` : ''}</div>` : ''}
+    ${item.reply_status !== 'none' ? `<div class="meta ${item.reply_status === 'failed' ? 'late' : ''}">${item.reply_auto ? '自动回复 · ' : ''}${REPLY_STATE[item.reply_status]}${item.reply_auto && item.reply_text && item.reply_status !== 'failed' ? `：${escapeHtml(item.reply_text)}` : ''}${item.reply_error ? `：${escapeHtml(item.reply_error)}` : ''}</div>` : ''}
     ${canWrite && item.status !== 'ignored' ? `<div class="reply">
       <textarea data-reply rows="2" maxlength="300" placeholder="回复内容，确认后才会发出"${replyLocked ? ' disabled' : ''}>${escapeHtml(item.reply_text || '')}</textarea>
       <div class="msg-actions">

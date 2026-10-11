@@ -244,11 +244,15 @@ async def read_stranger_messages(account_id) -> dict:
             if await empty.count():
                 return result
             for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
-                lines = [line.strip() for line in (await rows.nth(index).inner_text()).splitlines() if line.strip()]
-                # 一行会话 = 昵称、时间、最近一句话、未读数。去掉时间和纯数字，第一项是昵称，其余是内容。
-                lines = [line for line in lines if not TIME_LIKE.match(line) and not line.isdigit() and line not in ROW_LABELS]
-                if len(lines) >= 2:
-                    result["rows"].append({"sender_name": lines[0][:60], "text": " ".join(lines[1:])[:2000]})
+                row = rows.nth(index)
+                name = row.locator("[class*='item-header-name']")
+                text = row.locator("[class*='item-content']")
+                # 列表末尾还有一行“没有更多了”，不是会话。
+                if not (await name.count() and await text.count()):
+                    continue
+                sender, content = (await name.first.inner_text()).strip(), (await text.first.inner_text()).strip()
+                if sender and content:
+                    result["rows"].append({"sender_name": sender[:60], "text": content[:2000]})
             return result
         finally:
             await context.close()
@@ -257,6 +261,99 @@ async def read_stranger_messages(account_id) -> dict:
 
 class ReplyError(RuntimeError):
     """回复没有发出去；信息是给招商员看的。"""
+
+
+async def _open_stranger_tab(page) -> None:
+    """切到“陌生人私信”一栏并等它稳定下来；切不过去就报错，绝不在别的栏目里继续。"""
+    tab = page.get_by_role("tab", name="陌生人私信")
+    try:
+        await tab.wait_for(state="visible", timeout=40000)
+    except Exception:
+        raise ReplyError("打不开私信管理页，可能需要重新扫码登录")
+    for _ in range(5):
+        await page.wait_for_timeout(3000)
+        if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() == "陌生人私信":
+            break
+        await tab.click()
+    await page.wait_for_timeout(10000)
+    if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() != "陌生人私信":
+        raise ReplyError("没能切到陌生人私信一栏")
+
+
+async def send_stranger_message(account_id, sender_name: str, last_text: str, reply_text: str, rehearse: bool = False) -> None:
+    """在“陌生人私信”一栏里找到这个人的会话，回一句话。只在这一栏里找；找不到、对不上就报错，不发。
+    rehearse=True 时只填不发，填完清空。打开会话会把对方的消息标成已读。"""
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(storage_state=str(cookie_file(account_id)), viewport={"width": 1440, "height": 900})
+        page = await context.new_page()
+        try:
+            await page.goto(MESSAGE_PAGE, wait_until="domcontentloaded", timeout=90000)
+            await _open_stranger_tab(page)
+            rows = page.locator(".semi-tabs-pane-active .ReactVirtualized__Grid__innerScrollContainer > *")
+            target = None
+            for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
+                row = rows.nth(index)
+                name = row.locator("[class*='item-header-name']")
+                if await name.count() and (await name.first.inner_text()).strip() == sender_name:
+                    target = row
+                    break
+            if target is None:
+                raise ReplyError("在陌生人私信里没有找到这个人的会话，可能对方已删除，或已经成了朋友")
+            shown = (await target.locator("[class*='item-content']").first.inner_text()).strip()
+            if last_text[:15] not in shown and shown[:15] not in last_text:
+                raise ReplyError("这个人的会话里最新一句和系统里的对不上，可能对方又发了新消息，请先“立即检查”")
+            await target.click()
+            box = page.locator("[class*='chat-input'][contenteditable='true'], [class*='chat-input'] [contenteditable='true']").first
+            try:
+                await box.wait_for(state="visible", timeout=15000)
+            except Exception:
+                raise ReplyError("会话打开了，但没有出现输入框")
+            # 打开以后再核对两件事：还在“陌生人私信”这一栏；右边会话顶上的名字就是这个人。
+            where = page.locator(".semi-tabs-pane-active [class*='sub-tab-item'][class*='active']")
+            if not await where.count() or (await where.first.inner_text()).strip() != "陌生人私信" or not await target.locator(".semi-list-item[class*='active']").count():
+                raise ReplyError("打开的会话不在陌生人私信一栏，没有发送")
+            header = page.locator("[class*='box-header-name']")
+            titled = bool(await header.count()) and (await header.first.inner_text()).strip() == sender_name
+            if not titled:
+                raise ReplyError("打开的会话不是这个人的，没有发送")
+            await box.click()
+            await page.keyboard.type(reply_text, delay=30)
+            await page.wait_for_timeout(800)
+            if reply_text[:10] not in (await box.inner_text()):
+                raise ReplyError("输入框里没有填进内容")
+            send = page.locator("[class*='box-container']").get_by_role("button", name=re.compile(r"^发\s*送$")).first
+            if not await send.count() or await send.is_disabled():
+                raise ReplyError("发送按钮点不了，可能对方设置了不接收私信，或平台限制了发送")
+            if rehearse:
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Backspace")
+                return
+            await send.click()
+            # 聊天记录里（输入框以外）出现了这句话，才算发出。
+            posted = False
+            for _ in range(10):
+                await page.wait_for_timeout(2000)
+                bubbles = page.locator("[class*='box-container']").get_by_text(reply_text[:15])
+                for index in range(await bubbles.count()):
+                    if await bubbles.nth(index).evaluate("element => !element.closest('[contenteditable]') && !element.closest('.semi-list-item')"):
+                        posted = True
+                        break
+                if posted:
+                    break
+            if not posted:
+                raise ReplyError("点了发送，但没有在聊天记录里看到这句话，请到手机上确认")
+            await context.storage_state(path=str(cookie_file(account_id)))
+        except Exception:
+            try:
+                (HERE / "state" / "diagnostics").mkdir(parents=True, exist_ok=True)
+                await page.screenshot(path=str(HERE / "state" / "diagnostics" / "dm_reply_failure.png"))
+            except Exception:
+                pass
+            raise
+        finally:
+            await context.close()
+            await browser.close()
 
 
 async def send_comment_reply(account_id, post_title: str, sender_name: str, comment_text: str, reply_text: str, rehearse: bool = False) -> None:
@@ -348,7 +445,11 @@ async def send_comment_reply(account_id, post_title: str, sender_name: str, comm
             await browser.close()
 
 
-if __name__ == "__main__" and len(sys_argv := __import__("sys").argv) > 2 and sys_argv[1] == "rehearse-reply":
+if __name__ == "__main__" and len(sys_argv := __import__("sys").argv) > 2 and sys_argv[1] == "rehearse-message":
+    # 演练私信回复：python douyin_reader.py rehearse-message <账号编号> <对方昵称> <对方最新一句> —— 只填不发。
+    asyncio.run(send_stranger_message(sys_argv[2], sys_argv[3], sys_argv[4], "（演练，不会发出）您好", rehearse=True))
+    print("演练通过：在陌生人私信里找到了这个人，输入框能填，没有发送。")
+elif __name__ == "__main__" and len(sys_argv) > 2 and sys_argv[1] == "rehearse-reply":
     # 演练回复：python douyin_reader.py rehearse-reply <账号编号> <帖子标题开头> <对方昵称> <评论原文开头> —— 只填不发。
     asyncio.run(send_comment_reply(sys_argv[2], sys_argv[3], sys_argv[4], sys_argv[5], "（演练，不会发出）您好，具体情况我私信您", rehearse=True))
     print("演练通过：找到了帖子和评论，回复框能填，没有发送。")

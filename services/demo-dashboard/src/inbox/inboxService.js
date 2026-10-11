@@ -15,6 +15,7 @@ export const PLATFORM_NAME = Object.freeze({ douyin: '抖音', channels: '视频
 const KIND_NAME = { comment: '评论', direct_message: '私信' };
 const STATUSES = ['new', 'in_progress', 'converted', 'ignored'];
 export const OVERDUE_HOURS = 2;
+export const DEFAULT_AUTO_REPLY = '您好，这里是恒兆广场招商部，消息已收到。方便留个电话或微信吗？招商同事会尽快联系您，发详细资料、约时间看场。';
 // 内容类型 → 线索进入哪个板块。
 const SECTOR_OF = { property: 'office_retail', event: 'office_retail', hotel: 'hotel_apartment', dining: 'dining' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,13 +84,34 @@ async function assigneeFor(db, publishTaskId) {
 }
 
 /**
+ * Stranger direct messages get one fixed reply asking for contact details (the exception Simon confirmed on
+ * 2026-10-11, CLAUDE.md section 3). Never for spam, never twice for the same person, never when the person
+ * has already left contact details, and never past the daily limit. The publisher sends it.
+ */
+async function queueAutoReply(pool, message, contact) {
+  if (message.kind !== 'direct_message' || message.source !== 'reader' || !message.account_id || message.intent === 'spam') return false;
+  if (contact.phone || contact.wechat || contact.qq || contact.email) return false;
+  const { rowCount } = await pool.query(`
+    UPDATE leadgen.interaction_messages i SET reply_text = s.dm_auto_reply_text, reply_status = 'queued', reply_auto = true,
+      reply_confirmed_by = s.dm_auto_reply_enabled_by, reply_confirmed_at = now(), updated_at = now()
+    FROM leadgen.inbox_settings s
+    WHERE i.id = $1 AND s.id = 1 AND s.dm_auto_reply_enabled AND i.reply_status = 'none'
+      AND NOT EXISTS (SELECT 1 FROM leadgen.interaction_messages earlier
+                      WHERE earlier.platform = i.platform AND earlier.kind = 'direct_message' AND earlier.id <> i.id
+                        AND earlier.sender_platform_id = i.sender_platform_id AND earlier.reply_status IN ('queued', 'sent', 'manual'))
+      AND (SELECT count(*) FROM leadgen.interaction_messages today
+           WHERE today.reply_auto AND today.reply_confirmed_at >= date_trunc('day', now())) < s.dm_auto_reply_daily_limit`, [message.id]);
+  return rowCount > 0;
+}
+
+/**
  * Classifies every message that has no intent yet, assigns an owner and raises
  * a notification for the ones that show intent. Run by the worker every minute.
  */
 export async function classifyPending(pool, { llm, env = process.env, limit = 30 }) {
   const { rows: [settings] } = await pool.query('SELECT intent_keywords FROM leadgen.inbox_settings WHERE id = 1');
   const { rows: pending } = await pool.query(`
-    SELECT id, platform, kind, publish_task_id, post_title, sender_name, sender_platform_id, content FROM leadgen.interaction_messages
+    SELECT id, platform, kind, source, account_id, publish_task_id, post_title, sender_name, sender_platform_id, content FROM leadgen.interaction_messages
     WHERE intent IS NULL ORDER BY created_at LIMIT $1`, [limit]);
   let leads = 0;
   for (const message of pending) {
@@ -127,6 +149,7 @@ export async function classifyPending(pool, { llm, env = process.env, limit = 30
       UPDATE leadgen.interaction_messages SET intent = $2, intent_reason = $3, intent_source = $4, classified_at = now(),
         assignee_user_id = $5, status = CASE WHEN $2 = 'spam' THEN 'ignored' ELSE status END, updated_at = now()
       WHERE id = $1 AND intent IS NULL`, [message.id, result.intent, result.reason, result.source, assignee]);
+    if (rowCount) await queueAutoReply(pool, { ...message, intent: result.intent }, contact);
     if (!rowCount || !isLead) continue;
     leads += 1;
     await pool.query(`
@@ -212,7 +235,7 @@ export async function auditKeywordMisses(pool, { llm, env = process.env, limit =
 
 const MESSAGE_COLUMNS = `i.id, i.platform, i.kind, i.post_title, i.post_url, i.publish_task_id, i.sender_name, i.sender_profile_url, i.content,
   i.sent_at, i.source, i.intent, i.intent_reason, i.intent_source, i.status, i.assignee_user_id, a.display_name AS assignee_name,
-  i.company_id, i.reply_text, i.reply_status, i.reply_error, i.replied_at, t.material_id,
+  i.company_id, i.reply_text, i.reply_status, i.reply_error, i.replied_at, i.reply_auto, t.material_id,
   i.intent = ANY($1) AND i.status = 'new' AND i.sent_at < now() - make_interval(hours => $2) AS overdue`;
 
 const decorate = row => ({
@@ -393,8 +416,7 @@ export function confirmReply(pool, { messageId, text, manual = false, user }) {
     const forbidden = findForbidden(reply, (await postFacts(client, message)).floors);
     if (forbidden) throw fail(400, 'REPLY_FORBIDDEN_WORDING', `回复里不能出现${forbidden}`);
     // 手工录入的消息在系统里没有对应的平台会话，只能手动回复。
-    // 私信只读不发：回复由人在手机上发。
-    const byHand = message.source === 'manual' || !message.account_id || message.kind === 'direct_message';
+    const byHand = message.source === 'manual' || !message.account_id;
     const status = manual ? 'manual' : byHand ? 'failed' : 'queued';
     await client.query(`
       UPDATE leadgen.interaction_messages SET reply_text = $2, reply_status = $3, reply_confirmed_by = $4, reply_confirmed_at = now(),
@@ -402,7 +424,7 @@ export function confirmReply(pool, { messageId, text, manual = false, user }) {
         reply_error = CASE WHEN $3 = 'failed' THEN $5 ELSE NULL END,
         status = CASE WHEN status = 'new' THEN 'in_progress' ELSE status END, handled_by = $4, handled_at = now(), updated_at = now()
       WHERE id = $1`, [messageId, reply, status, user.id,
-      message.kind === 'direct_message' && message.source !== 'manual' ? '私信要在手机上回复，请复制内容到手机上发' : '这条消息是手工录入的，系统发不了，请复制到手机上回复']);
+      '这条消息是手工录入的，系统发不了，请复制到手机上回复']);
     if (message.company_id) {
       await client.query(`
         INSERT INTO leadgen.activities (track_id, activity_type, content, created_by)
@@ -492,17 +514,33 @@ export async function requestCheck(pool, { user }) {
 }
 
 export async function getInboxSettings(pool) {
-  const { rows: [row] } = await pool.query('SELECT intent_keywords, assignee_property, assignee_event, assignee_hotel, assignee_dining FROM leadgen.inbox_settings WHERE id = 1');
+  const { rows: [row] } = await pool.query('SELECT intent_keywords, assignee_property, assignee_event, assignee_hotel, assignee_dining, dm_auto_reply_enabled, dm_auto_reply_text, dm_auto_reply_daily_limit FROM leadgen.inbox_settings WHERE id = 1');
   const { rows: users } = await pool.query(`SELECT u.id, u.display_name FROM leadgen.users u JOIN leadgen.roles r ON r.key = u.role_key WHERE u.is_active AND r.can_write ORDER BY u.display_name`);
-  return { ...row, users };
+  return { ...row, dm_auto_reply_text: row.dm_auto_reply_text || DEFAULT_AUTO_REPLY, users };
 }
 
-export async function updateInboxSettings(pool, input) {
+export async function updateInboxSettings(pool, input, user = null) {
   const keywords = [...new Set((Array.isArray(input.intent_keywords) ? input.intent_keywords : []).map(item => String(item).trim()).filter(Boolean))];
   if (!keywords.length || keywords.length > 300 || keywords.some(keyword => keyword.length > 20)) throw fail(400, 'INBOX_SETTINGS_INVALID', '关键词要 1–300 个，每个不超过 20 字');
   const owner = value => { if (value == null || value === '') return null; if (!UUID.test(String(value))) throw fail(400, 'INBOX_SETTINGS_INVALID', '负责人不正确'); return value; };
   await pool.query(`
     UPDATE leadgen.inbox_settings SET intent_keywords = $1, assignee_property = $2, assignee_event = $3, assignee_hotel = $4, assignee_dining = $5, updated_at = now() WHERE id = 1`,
   [keywords, owner(input.assignee_property), owner(input.assignee_event), owner(input.assignee_hotel), owner(input.assignee_dining)]);
+  if (input.dm_auto_reply_enabled !== undefined) {
+    // 自动回复的话术和人写的回复守同样的规矩：不出现底价，不超过 300 字。打开它的人就是认可这段话术的人。
+    const enabled = input.dm_auto_reply_enabled === true;
+    const text = String(input.dm_auto_reply_text || '').trim();
+    const limit = Number(input.dm_auto_reply_daily_limit ?? 30);
+    if (enabled && !user) throw fail(400, 'INBOX_SETTINGS_INVALID', '需要登录的管理员来打开自动回复');
+    if (!text || text.length > 300) throw fail(400, 'INBOX_SETTINGS_INVALID', '自动回复的话术要 1–300 字');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw fail(400, 'INBOX_SETTINGS_INVALID', '每天自动回复的上限要在 1–200 之间');
+    const { rows } = await pool.query('SELECT floor_price_per_sqm FROM leadgen.leasing_policy WHERE floor_price_per_sqm IS NOT NULL');
+    const forbidden = findForbidden(text, rows.map(row => Number(row.floor_price_per_sqm)));
+    if (forbidden) throw fail(400, 'REPLY_FORBIDDEN_WORDING', `话术里不能出现${forbidden}`);
+    await pool.query(`
+      UPDATE leadgen.inbox_settings SET dm_auto_reply_enabled = $1, dm_auto_reply_text = $2, dm_auto_reply_daily_limit = $3,
+        dm_auto_reply_enabled_by = CASE WHEN $1 THEN $4::uuid ELSE dm_auto_reply_enabled_by END, updated_at = now() WHERE id = 1`,
+    [enabled, text, limit, user?.id ?? null]);
+  }
   return getInboxSettings(pool);
 }

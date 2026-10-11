@@ -25,16 +25,18 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from xiaohongshu_reader import read_xiaohongshu_notes
-from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply
+from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply, send_stranger_message
 
 HERE = Path(__file__).parent.resolve()
 ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v7"
+VERSION = "v8"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
+# 两条私信回复之间至少隔这么久（发得太密容易被平台限制）。
+MESSAGE_GAP_MINUTES = 3
 METRICS_HOURS = 6
 METRICS_DAYS = 30
 MIN_GAP_MINUTES = 10
@@ -413,9 +415,14 @@ def sync_stranger_messages(conn: psycopg.Connection, account: dict) -> str:
                      (Jsonb([key for key, _ in keyed]), account["id"]))
         return "陌生人私信从现在开始收"
     skipped = set(state["dm_baseline_keys"] or [])
+    # 我们回过话以后，会话列表里显示的最近一句是我们自己说的，不是对方的新消息。
+    ours = conn.execute(
+        "SELECT sender_name, reply_text FROM leadgen.interaction_messages WHERE account_id = %s AND kind = 'direct_message' AND reply_text IS NOT NULL AND reply_status IN ('sent', 'manual', 'failed', 'queued')",
+        (account["id"],)).fetchall()
+    said = {(row["sender_name"], " ".join(row["reply_text"].split())[:20]) for row in ours}
     new_messages = 0
     for key, row in keyed:
-        if key in skipped:
+        if key in skipped or (row["sender_name"], " ".join(row["text"].split())[:20]) in said:
             continue
         inserted = conn.execute(
             """INSERT INTO leadgen.interaction_messages
@@ -490,22 +497,30 @@ def process_metrics(conn: psycopg.Connection) -> None:
 
 
 def process_replies(conn: psycopg.Connection) -> None:
-    """把人工确认过的回复发到平台上。一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。
+    """把确认过的回复发到平台上：评论回复，和陌生人私信的回复（人确认的，或固定话术自动回的）。
+    一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。私信两条之间至少隔几分钟。
     追评在评论管理页上不单独显示，回复落在它所在的那条一级评论下面（同一串对话里）。"""
     message = conn.execute(
         """
-        SELECT i.id, i.account_id, i.reply_text, t.title AS post_title, a.account_name, i.sender_name AS who,
+        SELECT i.id, i.kind, i.account_id, i.reply_text, i.post_title AS post_title, t.title AS task_title, a.account_name, i.sender_name AS who,
                COALESCE(i.thread_sender_name, i.sender_name) AS sender_name, COALESCE(i.thread_comment_text, i.content) AS content
         FROM leadgen.interaction_messages i
         JOIN leadgen.publish_accounts a ON a.id = i.account_id
-        JOIN leadgen.publish_tasks t ON t.id = i.publish_task_id
-        WHERE i.reply_status = 'queued' AND i.platform = 'douyin' AND i.kind = 'comment' AND a.login_status = 'ok' AND NOT a.is_paused
+        LEFT JOIN leadgen.publish_tasks t ON t.id = i.publish_task_id
+        WHERE i.reply_status = 'queued' AND i.platform = 'douyin' AND a.login_status = 'ok' AND NOT a.is_paused
+          AND ((i.kind = 'comment' AND t.id IS NOT NULL)
+               OR (i.kind = 'direct_message' AND i.source = 'reader' AND NOT EXISTS (
+                     SELECT 1 FROM leadgen.interaction_messages recent
+                     WHERE recent.kind = 'direct_message' AND recent.account_id = i.account_id AND recent.replied_at > now() - make_interval(mins => %s))))
         ORDER BY i.reply_confirmed_at LIMIT 1
-        """).fetchone()
+        """, (MESSAGE_GAP_MINUTES,)).fetchone()
     if not message:
         return
     try:
-        asyncio.run(send_comment_reply(message["account_id"], message["post_title"], message["sender_name"], message["content"], message["reply_text"]))
+        if message["kind"] == "direct_message":
+            asyncio.run(send_stranger_message(message["account_id"], message["who"], message["content"], message["reply_text"]))
+        else:
+            asyncio.run(send_comment_reply(message["account_id"], message["task_title"], message["sender_name"], message["content"], message["reply_text"]))
     except ReplyError as error:
         reason = str(error)
     except Exception as error:
@@ -515,7 +530,7 @@ def process_replies(conn: psycopg.Connection) -> None:
         print(f"已回复 {message['who']}（{message['account_name']}）")
         return
     conn.execute(
-        "UPDATE leadgen.interaction_messages SET reply_status = 'failed', reply_error = %s, updated_at = now() WHERE id = %s",
+        "UPDATE leadgen.interaction_messages SET reply_status = 'failed', replied_at = CASE WHEN kind = 'direct_message' THEN now() ELSE replied_at END, reply_error = %s, updated_at = now() WHERE id = %s",
         (reason if "点了发送" in reason else f"{reason}。请复制回复内容到手机上回复", message["id"]))
     print(f"回复没有发出去：{message['who']}，{reason}")
 
