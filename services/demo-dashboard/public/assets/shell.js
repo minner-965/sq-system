@@ -25,9 +25,9 @@ const NAV = [
   { key: 'publishing', label: '内容发布', short: '发布', href: '/publishing.html' },
   { key: 'inbox', label: '互动收件箱', href: '/inbox.html', badge: true },
   { key: 'accounts', label: '发布账号', href: '/accounts.html' },
-  { key: 'leads', label: '留资线索' },
+  { key: 'leads', label: '留资线索', href: '/leads.html' },
   { group: '管理' },
-  { key: 'reports', label: '报表' },
+  { key: 'reports', label: '报表', href: '/reports.html' },
   { key: 'settings', label: '系统设置', href: '/settings.html' }
 ];
 

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>报表 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>报表</h1>
+          <p id="sub">&nbsp;</p>
+        </div>
+        <div class="btns">
+          <a class="btn pri" id="export" href="#">导出 Excel</a>
+        </div>
+      </div>
+
+      <form class="card report-bar" id="period">
+        <div class="seg" role="group" aria-label="时间范围">
+          <button type="button" data-preset="30" aria-pressed="true">近 30 天</button>
+          <button type="button" data-preset="month" aria-pressed="false">本月</button>
+          <button type="button" data-preset="last-month" aria-pressed="false">上月</button>
+        </div>
+        <div class="report-range">
+          <label for="from">从</label><input type="date" id="from" required>
+          <label for="to">到</label><input type="date" id="to" required>
+          <button class="btn" type="submit">查看</button>
+        </div>
+      </form>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+
+      <section class="card">
+        <div class="ph"><div><h3>招商漏斗</h3><p>这段时间里新开始跟进的客户，走到了哪一步</p></div></div>
+        <div id="funnel"><div class="state">正在加载</div></div>
+      </section>
+
+      <section class="card" style="margin-top:16px">
+        <div class="ph"><div><h3>渠道效果</h3><p>每个平台发了多少、多少人看、带来多少意向和联系方式</p></div></div>
+        <div id="channels"><div class="state">正在加载</div></div>
+      </section>
+
+      <section class="card" style="margin-top:16px">
+        <div class="ph"><div><h3>人员工作量</h3><p id="workload-sub">每个人这段时间做了什么</p></div></div>
+        <div id="workload"><div class="state">正在加载</div></div>
+      </section>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/reports.js"></script>
+</body>
+</html>

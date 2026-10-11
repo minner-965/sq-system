@@ -117,3 +117,10 @@ WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
 | uiautomator2 3.2.9 | 通过 USB 操作专用安卓手机：发朋友圈、在抖音 App 里回私信 | https://github.com/openatx/uiautomator2 （PyPI 同名包） | MIT | 活跃，2025–2026 年持续发版 | 电脑版微信不能发朋友圈；从抖音电脑后台发的私信对方收不到（2026-10-12 实测），只有手机 App 发的能到 | 采用，固定版本，装在 `publisher/.venv` 里，只在 `publisher/phone_driver.py` 里用 |
 | Android platform-tools（adb） | 电脑和手机之间的连接工具，uiautomator2 依赖它 | https://developer.android.com/tools/releases/platform-tools （用 winget 包 Google.PlatformTools 安装） | Android SDK 许可（免费使用，不随项目分发） | Google 官方维护 | 没有它连不上手机 | 采用，装在这台电脑上，不进仓库 |
 | Open-AutoGLM | 没有固定点击步骤时让模型看屏幕操作 | 计划里列为兜底 | Apache-2.0（计划注明，引入前核对） | 未评估 | 目前不需要 | 不引入，默认关闭的兜底，等真有脚本解决不了的界面再评估 |
+
+## WP09 的选型记录（2026-10-12）
+
+| 组件 | 用途 | 官方来源 | 许可 | 维护状态 | 为什么需要 | 决定 |
+|---|---|---|---|---|---|---|
+| qrcode 1.5.4 | 在服务端生成留资链接的二维码（SVG） | https://github.com/soldair/node-qrcode （npm 同名包） | MIT | 成熟稳定，使用面很广 | 二维码编码不值得自己写；生成的是矢量图，放大不糊，不依赖外部服务 | 采用，固定版本 |
+| exceljs 4.4.0 | 报表导出 Excel | 已在依赖里（WP02 起使用） | MIT | 已采用 | 复用现有依赖，不新增 | 复用 |

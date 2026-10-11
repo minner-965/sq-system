@@ -13,6 +13,7 @@
     "check:search-llm": "node --env-file=../../.env scripts/hz/check-search-llm.mjs",
     "eval:copy": "node --env-file=../../.env scripts/hz/eval-copy.mjs",
     "eval:intent": "node --env-file=../../.env scripts/hz/eval-intent.mjs",
+    "check:lead-form": "node --env-file=../../.env scripts/hz/check-lead-form.mjs",
     "check:publish-rules": "node --env-file=../../.env scripts/hz/check-publish-rules.mjs",
     "user:set": "node --env-file=../../.env scripts/hz/set-user.mjs",
     "import:properties": "node --env-file=../../.env scripts/hz/import-properties.mjs",
@@ -36,6 +37,7 @@
     "multer": "2.4.0",
     "pg": "8.23.0",
     "pg-boss": "12.28.0",
+    "qrcode": "1.5.4",
     "tldts": "7.4.11",
     "umzug": "3.8.3",
     "validator": "13.15.35"

@@ -18,6 +18,8 @@ import { createProviders } from './discovery/providers/index.js';
 import { createRun, getSettings, runDiscovery } from './discovery/discoveryService.js';
 import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
 import { createCustomerRouter } from './customers/customerRoutes.js';
+import { createLeadRouter, createPublicLeadRouter } from './leads/leadRoutes.js';
+import { createReportRouter } from './reports/reportRoutes.js';
 import { createLlmClient } from './llm/llmClient.js';
 import { createPublishingRouter } from './publishing/publishingRoutes.js';
 import { createInboxRouter } from './inbox/inboxRoutes.js';
@@ -109,6 +111,8 @@ if (httpListenEnabled) mountWorkspace(createSessionAuth({ pool }));
 function mountWorkspace(auth) {
   // Behind Docker's network and, for the public demo, the cloudflared tunnel.
   app.set('trust proxy', 'loopback, uniquelocal');
+  // 留资页是唯一不用登录的入口：客人扫码打开、填表、提交。放在登录这道墙前面，只暴露这三个地址。
+  app.use(auth.sameOriginWrites, createPublicLeadRouter({ pool, formPage: path.join(publicDir, 'lead-form.html') }));
   app.use(auth.sessionMiddleware);
   app.use(auth.sameOriginWrites);
   app.use('/api/auth', auth.router);
@@ -143,6 +147,8 @@ function mountWorkspace(auth) {
 
   app.use('/api', createLeasingRouter({ pool, auth }));
   app.use('/api', createCustomerRouter({ pool, auth }));
+  app.use('/api', createLeadRouter({ pool, auth }));
+  app.use('/api', createReportRouter({ pool, auth }));
   app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
   app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
   app.use('/api/discovery', createDiscoveryRouter({
