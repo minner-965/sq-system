@@ -18,6 +18,9 @@ COMMENT_PAGE = "https://creator.douyin.com/creator-micro/interactive/comment"
 ITEM_LIST_API = "/aweme/v1/creator/item/list/"
 COMMENT_LIST_API = "/aweme/v1/creator/comment/list/"
 MAX_COMMENT_PAGES = 10
+# 评论管理页自己用来列评论和追评的接口；追评只能从这里读到。
+THREAD_API = "/web/api/third_party/aweme/api/comment/read/aweme/v1/web/comment/list/"
+MAX_THREADS = 30
 MESSAGE_PAGE = "https://creator.douyin.com/creator-micro/data/following/chat"
 MAX_MESSAGE_ROWS = 30
 # 会话列表里的时间：刚刚、3分钟前、昨天 12:30、星期二、10-09、2026-10-09、12:30。
@@ -38,6 +41,33 @@ async def _page_get(page, path: str, params: dict) -> dict:
             const text = await response.text();
             try { return JSON.parse(text); } catch { return { status_code: -1, status_msg: text.slice(0, 200) }; }
         }""", [path, params])
+
+
+async def _read_follow_ups(page, item_id: str, result: dict) -> list[dict]:
+    """一条评论下面的追评（比如我们回复之后对方又说的话）。作者自己的回复不算。
+    每条带上它所在的一级评论的原文和发评论人，回复时要用。"""
+    query = {"channel_id": "618", "app_id": "2906", "aid": "2906"}
+    top = await _page_get(page, THREAD_API + "select/", {**query, "aweme_id": item_id, "cursor": "0", "count": str(MAX_THREADS), "comment_select_options": "0", "sort_options": "0"})
+    if top.get("status_code") != 0:
+        result.setdefault("errors", []).append("追评没读到")
+        return []
+    follow_ups = []
+    for parent in top.get("comments") or []:
+        data = await _page_get(page, THREAD_API + "reply/", {**query, "item_id": item_id, "comment_id": parent["cid"], "cursor": "0", "count": "20"})
+        for reply in data.get("comments") or []:
+            if reply.get("label_text") == "作者":
+                continue
+            user = reply.get("user") or {}
+            follow_ups.append({
+                "comment_id": f"reply:{reply['cid']}",
+                "text": reply.get("text") or "",
+                "sender_name": user.get("nickname") or "抖音用户",
+                "sender_id": None,
+                "sent_at": datetime.fromtimestamp(int(reply.get("create_time") or 0), tz=timezone.utc).isoformat(),
+                "thread_comment_text": parent.get("text") or "",
+                "thread_sender_name": (parent.get("user") or {}).get("nickname") or "",
+            })
+    return follow_ups
 
 
 async def read_douyin(account_id, wanted_item_ids: set[str]) -> dict:
@@ -107,6 +137,7 @@ async def read_douyin(account_id, wanted_item_ids: set[str]) -> dict:
                         break
                     cursor = data.get("cursor")
                 result["comments"][item["item_id"]] = comments
+                comments.extend(await _read_follow_ups(page, item["item_id"], result))
             # 顺手把登录状态续上。
             await context.storage_state(path=str(cookie_file(account_id)))
             return result

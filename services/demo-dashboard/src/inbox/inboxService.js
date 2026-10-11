@@ -79,7 +79,7 @@ async function assigneeFor(db, publishTaskId) {
 export async function classifyPending(pool, { llm, env = process.env, limit = 30 }) {
   const { rows: [settings] } = await pool.query('SELECT intent_keywords FROM leadgen.inbox_settings WHERE id = 1');
   const { rows: pending } = await pool.query(`
-    SELECT id, platform, kind, publish_task_id, post_title, sender_name, content FROM leadgen.interaction_messages
+    SELECT id, platform, kind, publish_task_id, post_title, sender_name, sender_platform_id, content FROM leadgen.interaction_messages
     WHERE intent IS NULL ORDER BY created_at LIMIT $1`, [limit]);
   let leads = 0;
   for (const message of pending) {
@@ -97,6 +97,14 @@ export async function classifyPending(pool, { llm, env = process.env, limit = 30
     if (result.usage) {
       await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, cost_cny, duration_ms) VALUES ($1, 'chat/completions', '意图分类', 'ok', $2, $3)`,
         [llm.provider, llmCost(result.usage, env), Date.now() - started]);
+    }
+    if (result.intent === 'chat' && message.sender_platform_id) {
+      // 询过价的人后面再说的话（“好的”“已私信”），单看是普通互动，其实是同一桩生意的后续，照样提醒。
+      const { rows: [earlier] } = await pool.query(`
+        SELECT intent FROM leadgen.interaction_messages
+        WHERE platform = $1 AND sender_platform_id = $2 AND id <> $3 AND intent IN ('inquiry', 'viewing', 'cooperation', 'booking')
+        ORDER BY sent_at DESC LIMIT 1`, [message.platform, message.sender_platform_id, message.id]);
+      if (earlier) result = { ...result, intent: earlier.intent, reason: `这个人之前${INTENTS[earlier.intent].label}，这是后续` };
     }
     const isLead = INTENTS[result.intent].lead;
     const assignee = isLead ? await assigneeFor(pool, message.publish_task_id) : null;
