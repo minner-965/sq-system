@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import random
 import subprocess
@@ -21,16 +22,18 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
-from douyin_reader import ReplyError, read_douyin, send_comment_reply
+from douyin_reader import ReplyError, read_douyin, read_stranger_messages, send_comment_reply
 
 HERE = Path(__file__).parent.resolve()
 ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v4"
+VERSION = "v5"
 POLL_SECONDS = 20
+RUN_LOCK_KEY = 20261011
 MIN_GAP_MINUTES = 10
 UPLOAD_TIMEOUT_SECONDS = 15 * 60
 # 发布组件里各平台的名字。没列出的平台还没有接入。
@@ -340,7 +343,40 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
     note = f"读了 {len(by_post)} 条我们发布的帖子，新评论 {new_messages} 条" + (f"，补上帖子链接 {newly_linked} 条" if newly_linked else "")
     if data.get("errors"):
         note += f"；{data['errors'][0]}"
+    try:
+        note += f"，{sync_stranger_messages(conn, account)}"
+    except Exception as error:
+        note += f"；私信没读到：{error}"[:120]
     return note
+
+
+def sync_stranger_messages(conn: psycopg.Connection, account: dict) -> str:
+    """把陌生人发来的私信收进互动收件箱。朋友私信和群消息不读。
+    第一次读的时候，这一栏里已经有的会话只记下来、不收；之后新来的（或老会话里的新一句）才收。"""
+    data = asyncio.run(read_stranger_messages(account["id"]))
+    if not data["logged_in"]:
+        return "私信页打不开"
+    if data.get("errors"):
+        return data["errors"][0]
+    keyed = [(hashlib.sha1(f"{row['sender_name']}|{row['text']}".encode("utf-8")).hexdigest(), row) for row in data["rows"]]
+    state = conn.execute("SELECT dm_baseline_at, dm_baseline_keys FROM leadgen.publish_accounts WHERE id = %s", (account["id"],)).fetchone()
+    if state["dm_baseline_at"] is None:
+        conn.execute("UPDATE leadgen.publish_accounts SET dm_baseline_at = now(), dm_baseline_keys = %s WHERE id = %s",
+                     (Jsonb([key for key, _ in keyed]), account["id"]))
+        return "陌生人私信从现在开始收"
+    skipped = set(state["dm_baseline_keys"] or [])
+    new_messages = 0
+    for key, row in keyed:
+        if key in skipped:
+            continue
+        inserted = conn.execute(
+            """INSERT INTO leadgen.interaction_messages
+                 (platform, kind, platform_message_id, account_id, sender_name, sender_platform_id, content, sent_at, source)
+               VALUES ('douyin', 'direct_message', %s, %s, %s, %s, %s, now(), 'reader')
+               ON CONFLICT (platform, platform_message_id) DO NOTHING RETURNING id""",
+            (f"dm:{key}", account["id"], row["sender_name"], f"name:{row['sender_name']}", row["text"])).fetchone()
+        new_messages += 1 if inserted else 0
+    return f"新私信 {new_messages} 条"
 
 
 def process_inbox_checks(conn: psycopg.Connection) -> None:
@@ -401,7 +437,7 @@ def process_replies(conn: psycopg.Connection) -> None:
         return
     conn.execute(
         "UPDATE leadgen.interaction_messages SET reply_status = 'failed', reply_error = %s, updated_at = now() WHERE id = %s",
-        (f"{reason}。请复制回复内容到手机上回复", message["id"]))
+        (reason if "点了发送" in reason else f"{reason}。请复制回复内容到手机上回复", message["id"]))
     print(f"回复没有发出去：{message['sender_name']}，{reason}")
 
 
@@ -440,26 +476,48 @@ def main(argv: list[str]) -> int:
             for account in conn.execute("SELECT id, platform, account_name, login_status FROM leadgen.publish_accounts WHERE purpose = 'publish' AND login_status = 'ok'").fetchall():
                 print(f"{account['account_name']}：{sync_account(conn, account)}")
         return 0
-    if command in ("once", "run"):
+    if command == "once":
         with connect() as conn:
             recover_interrupted(conn)
-            if command == "once":
-                print(f"处理了 {process_due(conn)} 条任务。")
-                return 0
-            print(f"发布程序已启动（{VERSION}），按 Ctrl+C 停止。")
-            sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py"]
-            loaded = [path.stat().st_mtime for path in sources]
-            while True:
-                # 程序文件更新了就退出，由 start-publisher.cmd 立刻重新启动，用上新程序。
-                if [path.stat().st_mtime for path in sources] != loaded:
-                    print("程序已更新，正在重新启动。")
-                    return 75
-                heartbeat(conn)
-                process_login_requests(conn)
-                process_due(conn)
-                process_inbox_checks(conn)
-                process_replies(conn)
-                time.sleep(POLL_SECONDS)
+            print(f"处理了 {process_due(conn)} 条任务。")
+            return 0
+    if command == "run":
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py"]
+        loaded = [path.stat().st_mtime for path in sources]
+        waiting = False
+        while True:
+            # 开机自动启动时数据库可能还没起来，或者中途断开：等一会儿再连，不退出。
+            try:
+                conn = connect()
+            except psycopg.OperationalError:
+                if not waiting:
+                    print("还连不上数据库（Docker 可能还没启动好），每 15 秒重试一次。")
+                    waiting = True
+                time.sleep(15)
+                continue
+            waiting = False
+            try:
+                with conn:
+                    # 同一时间只允许一个发布程序在跑，避免同一条内容被发两次。
+                    if not conn.execute("SELECT pg_try_advisory_lock(%s) AS locked", (RUN_LOCK_KEY,)).fetchone()["locked"]:
+                        print("已经有一个发布程序在运行，这个窗口不需要，可以关掉。")
+                        return 0
+                    recover_interrupted(conn)
+                    print(f"发布程序已启动（{VERSION}）。关掉这个窗口就停止发布。")
+                    while True:
+                        # 程序文件更新了就退出，由 start-publisher.cmd 立刻重新启动，用上新程序。
+                        if [path.stat().st_mtime for path in sources] != loaded:
+                            print("程序已更新，正在重新启动。")
+                            return 75
+                        heartbeat(conn)
+                        process_login_requests(conn)
+                        process_due(conn)
+                        process_inbox_checks(conn)
+                        process_replies(conn)
+                        time.sleep(POLL_SECONDS)
+            except psycopg.OperationalError:
+                print("数据库连接断了，15 秒后重新连接。")
+                time.sleep(15)
     print(__doc__)
     return 2
 

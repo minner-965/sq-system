@@ -18,6 +18,10 @@ COMMENT_PAGE = "https://creator.douyin.com/creator-micro/interactive/comment"
 ITEM_LIST_API = "/aweme/v1/creator/item/list/"
 COMMENT_LIST_API = "/aweme/v1/creator/comment/list/"
 MAX_COMMENT_PAGES = 10
+MESSAGE_PAGE = "https://creator.douyin.com/creator-micro/data/following/chat"
+MAX_MESSAGE_ROWS = 30
+# 会话列表里的时间：刚刚、3分钟前、昨天 12:30、星期二、10-09、2026-10-09、12:30。
+TIME_LIKE = re.compile(r"^(刚刚|\d+\s*(秒|分钟|小时|天)前|(昨天|前天|星期.|周.)(\s*\d{1,2}:\d{2})?|(\d{4}[-/.])?\d{1,2}[-/.]\d{1,2}(\s+\d{1,2}:\d{2})?|\d{1,2}:\d{2}|(\d{4}年)?\d{1,2}月\d{1,2}日)$")
 
 
 def cookie_file(account_id) -> Path:
@@ -111,6 +115,47 @@ async def read_douyin(account_id, wanted_item_ids: set[str]) -> dict:
             await browser.close()
 
 
+async def read_stranger_messages(account_id) -> dict:
+    """读私信管理页的“陌生人私信”一栏，返回 {"logged_in": bool, "rows": [{"sender_name", "text"}]}。
+    只点这一个栏目，不点开任何会话（点开会把消息标成已读），所以拿到的是每个人最近的一句话。
+    朋友私信和群消息两栏不碰。私信走的是加密通道，没有可读的数据接口，只能读页面上显示的内容。"""
+    result = {"logged_in": True, "rows": []}
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(storage_state=str(cookie_file(account_id)), viewport={"width": 1440, "height": 900})
+        page = await context.new_page()
+        try:
+            await page.goto(MESSAGE_PAGE, wait_until="domcontentloaded", timeout=90000)
+            tab = page.get_by_role("tab", name="陌生人私信")
+            try:
+                await tab.wait_for(state="visible", timeout=40000)
+            except Exception:
+                result["logged_in"] = False
+                return result
+            await tab.click()
+            pane = page.locator(".semi-tabs-pane-active").first
+            # 等加载圈消失：要么出现“还没有收到私信”，要么出现会话列表。
+            empty = pane.get_by_text("还没有收到私信")
+            rows = pane.locator(".ReactVirtualized__Grid__innerScrollContainer > *")
+            for _ in range(20):
+                await page.wait_for_timeout(2000)
+                if await empty.count() or await rows.count():
+                    break
+            else:
+                result.setdefault("errors", []).append("私信页一直在加载，这次没读到")
+                return result
+            for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
+                lines = [line.strip() for line in (await rows.nth(index).inner_text()).splitlines() if line.strip()]
+                # 一行会话 = 昵称、时间、最近一句话、未读数。去掉时间和纯数字，第一项是昵称，其余是内容。
+                lines = [line for line in lines if not TIME_LIKE.match(line) and not line.isdigit()]
+                if len(lines) >= 2:
+                    result["rows"].append({"sender_name": lines[0][:60], "text": " ".join(lines[1:])[:2000]})
+            return result
+        finally:
+            await context.close()
+            await browser.close()
+
+
 class ReplyError(RuntimeError):
     """回复没有发出去；信息是给招商员看的。"""
 
@@ -129,16 +174,19 @@ async def send_comment_reply(account_id, post_title: str, sender_name: str, comm
                 await picker.wait_for(state="visible", timeout=40000)
             except Exception:
                 raise ReplyError("打不开评论管理页，可能需要重新扫码登录")
-            await picker.click()
-            sheet = page.locator(".douyin-creator-interactive-sidesheet-body")
-            await sheet.wait_for(state="visible", timeout=15000)
-            row = sheet.get_by_text(post_title[:12]).first
-            try:
-                await row.wait_for(state="visible", timeout=15000)
-            except Exception:
-                raise ReplyError("在作品列表里没有找到这条帖子，可能已被删除")
-            await row.click()
+            # 页面默认显示最新的一条作品。已经是要找的帖子就不用再选；不是才打开“选择作品”去挑。
             await page.wait_for_timeout(4000)
+            shown = page.get_by_text(post_title[:12]).first
+            if not (await shown.count() and await shown.is_visible()):
+                await picker.click()
+                sheet = page.locator("[class*='sidesheet-body'], [class*='sidesheet-content']").first
+                row = sheet.get_by_text(post_title[:12]).first
+                try:
+                    await row.wait_for(state="visible", timeout=20000)
+                except Exception:
+                    raise ReplyError("在作品列表里没有找到这条帖子，可能已被删除")
+                await row.click()
+                await page.wait_for_timeout(4000)
 
             # 包含这条评论原文和“回复”按钮的最里层那一块，就是这条评论。
             needle = comment_text.split("[")[0].strip()[:20] or comment_text[:20]
@@ -174,11 +222,18 @@ async def send_comment_reply(account_id, post_title: str, sender_name: str, comm
             if rehearse:
                 return
             await send.click()
-            # 发出去以后回复框会收起；再确认评论区里出现了这条回复，才算发出。
-            try:
-                await box.wait_for(state="hidden", timeout=15000)
-                await page.get_by_text(reply_text[:15]).first.wait_for(state="visible", timeout=15000)
-            except Exception:
+            # 评论区里（输入框以外）出现了这条回复，才算发出。回复框收起后，页面顶部还有一个常驻的评论框，不能拿输入框是否消失来判断。
+            posted = False
+            for _ in range(15):
+                await page.wait_for_timeout(2000)
+                shown = page.get_by_text(reply_text[:15])
+                for index in range(await shown.count()):
+                    if await shown.nth(index).evaluate("element => !element.closest('[contenteditable]')"):
+                        posted = True
+                        break
+                if posted:
+                    break
+            if not posted:
                 raise ReplyError("点了发送，但没有在评论区看到这条回复，请到手机上确认")
             await context.storage_state(path=str(cookie_file(account_id)))
         except Exception:

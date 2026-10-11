@@ -357,13 +357,16 @@ export function confirmReply(pool, { messageId, text, manual = false, user }) {
     const forbidden = findForbidden(reply, (await postFacts(client, message)).floors);
     if (forbidden) throw fail(400, 'REPLY_FORBIDDEN_WORDING', `回复里不能出现${forbidden}`);
     // 手工录入的消息在系统里没有对应的平台会话，只能手动回复。
-    const status = manual ? 'manual' : message.source === 'manual' || !message.account_id ? 'failed' : 'queued';
+    // 私信只读不发：回复由人在手机上发。
+    const byHand = message.source === 'manual' || !message.account_id || message.kind === 'direct_message';
+    const status = manual ? 'manual' : byHand ? 'failed' : 'queued';
     await client.query(`
       UPDATE leadgen.interaction_messages SET reply_text = $2, reply_status = $3, reply_confirmed_by = $4, reply_confirmed_at = now(),
         replied_at = CASE WHEN $3 = 'manual' THEN now() ELSE replied_at END,
-        reply_error = CASE WHEN $3 = 'failed' THEN '这条消息是手工录入的，系统发不了，请复制到手机上回复' ELSE NULL END,
+        reply_error = CASE WHEN $3 = 'failed' THEN $5 ELSE NULL END,
         status = CASE WHEN status = 'new' THEN 'in_progress' ELSE status END, handled_by = $4, handled_at = now(), updated_at = now()
-      WHERE id = $1`, [messageId, reply, status, user.id]);
+      WHERE id = $1`, [messageId, reply, status, user.id,
+      message.kind === 'direct_message' && message.source !== 'manual' ? '私信要在手机上回复，请复制内容到手机上发' : '这条消息是手工录入的，系统发不了，请复制到手机上回复']);
     if (message.company_id) {
       await client.query(`
         INSERT INTO leadgen.activities (track_id, activity_type, content, created_by)
@@ -403,7 +406,8 @@ export function convertToLead(pool, { messageId, user }) {
       message.post_title ? `帖子：《${message.post_title}》${message.post_url ? ` ${message.post_url}` : ''}` : null,
       `对方：${message.sender_name}${message.sender_profile_url ? ` ${message.sender_profile_url}` : ''}`,
       `原话：${message.content}`,
-      `判断：${INTENTS[message.intent]?.label || '未分类'}`
+      `判断：${INTENTS[message.intent]?.label || '未分类'}`,
+      message.reply_text && ['sent', 'manual', 'queued'].includes(message.reply_status) ? `${message.reply_status === 'queued' ? '待发回复' : '已回复'}：${message.reply_text}` : null
     ].filter(Boolean).join('\n');
     await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, occurred_at, created_by) VALUES ($1, 'note', $2, $3, $4)`,
       [track.id, source, message.sent_at, user.id]);
