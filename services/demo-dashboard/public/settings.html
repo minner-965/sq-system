@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>系统设置 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>系统设置</h1>
+          <p>评论和私信里的意向消息分给谁、哪些词算意向</p>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+
+      <div id="body"><div class="card"><div class="state">正在加载</div></div></div>
+
+      <form id="form" hidden>
+        <section class="card settings">
+          <div class="ph"><div><h3>意向消息分给谁</h3><p>按帖子的内容类型分；不指定时由管理员处理</p></div></div>
+          <div class="pb form-grid">
+            <div class="field"><label for="s-property">房源招租的帖子</label><select id="s-property" name="assignee_property"></select></div>
+            <div class="field"><label for="s-event">活动和园区动态的帖子</label><select id="s-event" name="assignee_event"></select></div>
+            <div class="field"><label for="s-hotel">酒店公寓的帖子</label><select id="s-hotel" name="assignee_hotel"></select></div>
+            <div class="field"><label for="s-dining">餐饮的帖子</label><select id="s-dining" name="assignee_dining"></select></div>
+          </div>
+        </section>
+
+        <section class="card settings" style="margin-top:16px">
+          <div class="ph"><div><h3>意向关键词</h3><p>平时每条消息都会判断意向；这些词用来在判断暂时用不了时兜底，带这些词的消息先按意向处理</p></div></div>
+          <div class="pb">
+            <div class="tags" id="keywords" aria-live="polite"></div>
+            <div class="field" style="margin-top:14px;max-width:360px">
+              <label for="s-new">加一个词（回车添加，最多 20 字）</label>
+              <input id="s-new" maxlength="20" autocomplete="off">
+            </div>
+            <div class="form-actions"><span class="form-error" id="form-error" role="alert"></span><button class="btn pri" type="submit" id="save">保存</button></div>
+          </div>
+        </section>
+      </form>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/settings.js"></script>
+</body>
+</html>

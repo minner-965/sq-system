@@ -465,7 +465,7 @@ export async function getInboxSettings(pool) {
 
 export async function updateInboxSettings(pool, input) {
   const keywords = [...new Set((Array.isArray(input.intent_keywords) ? input.intent_keywords : []).map(item => String(item).trim()).filter(Boolean))];
-  if (!keywords.length || keywords.length > 80 || keywords.some(keyword => keyword.length > 20)) throw fail(400, 'INBOX_SETTINGS_INVALID', '关键词要 1–80 个，每个不超过 20 字');
+  if (!keywords.length || keywords.length > 300 || keywords.some(keyword => keyword.length > 20)) throw fail(400, 'INBOX_SETTINGS_INVALID', '关键词要 1–300 个，每个不超过 20 字');
   const owner = value => { if (value == null || value === '') return null; if (!UUID.test(String(value))) throw fail(400, 'INBOX_SETTINGS_INVALID', '负责人不正确'); return value; };
   await pool.query(`
     UPDATE leadgen.inbox_settings SET intent_keywords = $1, assignee_property = $2, assignee_event = $3, assignee_hotel = $4, assignee_dining = $5, updated_at = now() WHERE id = 1`,

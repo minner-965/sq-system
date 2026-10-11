@@ -28,7 +28,7 @@ const NAV = [
   { key: 'leads', label: '留资线索' },
   { group: '管理' },
   { key: 'reports', label: '报表' },
-  { key: 'settings', label: '系统设置' }
+  { key: 'settings', label: '系统设置', href: '/settings.html' }
 ];
 
 const SECTOR_NAME = { office_retail: '商铺写字楼', hotel_apartment: '酒店公寓', dining: '餐饮' };
