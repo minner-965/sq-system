@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>企业详情 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <a class="back" href="/customers.html">‹ 返回招商客户</a>
+      <div class="head">
+        <div>
+          <h1 id="name">&nbsp;</h1>
+          <p id="sub">&nbsp;</p>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+
+      <div class="stack">
+        <section class="card" aria-label="基本信息"><div class="ph"><div><h3>基本信息</h3></div></div><div class="pb facts" id="facts"><div class="state">正在加载</div></div></section>
+        <div class="cols">
+          <div class="stack" id="tracks"></div>
+          <div class="stack">
+            <section class="card"><div class="ph"><div><h3>评分</h3><p>各板块的候选分数和依据</p></div></div><div class="pb" id="scores"></div></section>
+            <section class="card"><div class="ph"><div><h3>跟进记录</h3><p>最近的在前</p></div></div><div class="pb" id="timeline"></div></section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/company.js"></script>
+</body>
+</html>

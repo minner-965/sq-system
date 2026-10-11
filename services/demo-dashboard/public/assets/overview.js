@@ -24,7 +24,7 @@ function renderKpis(data) {
     change ? `<span class="${change > 0 ? 'up' : 'down'}">较上周 ${change > 0 ? '+' : ''}${change}</span>` : '<span>与上周持平</span>',
     pending ? `<span>其中待复核 ${pending}</span>` : ''
   ].join(''));
-  setKpi('kpi-viewings', number(data.viewings_this_month), '次', '');
+  setKpi('kpi-viewings', number(data.viewings_this_month), '次', data.viewings_scheduled ? `<span>已预约待看 ${data.viewings_scheduled} 次</span>` : '');
   const { due_today: due, overdue } = data.follow_ups;
   setKpi('kpi-follow', number(due), '条', overdue ? `<span class="late">${overdue} 条已逾期</span>` : '');
   byId('kpi-follow').classList.toggle('attn', overdue > 0);
@@ -39,7 +39,7 @@ function renderFunnel({ steps, lost }) {
     const rate = index && previous ? `${Math.round((step.count / previous) * 100)}%` : '—';
     return `<div class="fun-row"><span class="n">${step.name}</span><div class="track"><span style="width:${top ? (step.count / top) * 100 : 0}%"></span></div><span class="v">${number(step.count)}</span><span class="r">${rate}</span></div>`;
   }).join('');
-  byId('funnel').innerHTML = `<div class="fun">${rows}</div><div class="fun-foot"><span>已流失<b>${number(lost)}</b></span></div>`;
+  byId('funnel').innerHTML = `<div class="fun">${rows}</div><div class="fun-foot"><span>已放弃<b>${number(lost)}</b></span></div>`;
 }
 
 let chart;
@@ -79,7 +79,7 @@ function renderFollowUps(items) {
   byId('follow-ups').innerHTML = `<table>
     <thead><tr><th scope="col">企业</th><th scope="col">板块 · 阶段</th><th scope="col">负责人</th></tr></thead>
     <tbody>${items.map(item => `<tr>
-      <td><div class="co">${escapeHtml(item.company_name)}</div></td>
+      <td><a class="rowlink" href="/company.html?id=${item.company_id}"><div class="co">${escapeHtml(item.company_name)}</div></a></td>
       <td>${escapeHtml(item.sector_name)} · ${escapeHtml(item.stage_name)}<div class="meta${item.overdue ? ' overdue' : ''}">${followUpTime(item)}</div></td>
       <td>${escapeHtml(item.owner_name || '未分配')}</td>
     </tr>`).join('')}</tbody></table>`;

@@ -25,7 +25,8 @@ function actions(item) {
     if (!shell.user.can_write) return '';
     return `<button class="btn sm pri" type="button" data-review="approve" data-id="${item.id}">通过</button><button class="btn sm" type="button" data-review="reject" data-id="${item.id}">不合适</button>`;
   }
-  return `<span class="status ${item.status === 'approved' ? 'st-ok' : 'st-wait'}">${item.status === 'approved' ? '已进入跟进' : '不合适'}</span>${item.reject_reason ? `<div class="meta">${escapeHtml(item.reject_reason)}</div>` : ''}`;
+  if (item.status === 'approved') return `<a class="btn sm" href="/company.html?id=${item.company_id}">去跟进</a>`;
+  return `<span class="status st-wait">不合适</span>${item.reject_reason ? `<div class="meta">${escapeHtml(item.reject_reason)}</div>` : ''}`;
 }
 
 function renderList() {

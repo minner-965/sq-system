@@ -17,7 +17,7 @@ const NAV = [
   { key: 'overview', label: '工作台总览', short: '总览', href: '/' },
   { group: '招商' },
   { key: 'discovery', label: '企业发现', short: '发现', href: '/discovery.html' },
-  { key: 'customers', label: '招商客户', short: '客户' },
+  { key: 'customers', label: '招商客户', short: '客户', href: '/customers.html' },
   { key: 'properties', label: '房源与服务' },
   { group: '内容' },
   { key: 'publishing', label: '内容发布', short: '发布' },
@@ -93,7 +93,22 @@ export async function initShell({ page }) {
     <div class="seg" role="group" aria-label="板块">
       ${choices.map(key => `<button type="button" data-sector="${key}" aria-pressed="${key === sector}">${key === 'all' ? '全部' : SECTOR_NAME[key]}</button>`).join('')}
     </div>
+    <div class="bell-wrap">
+      <button type="button" class="bell" data-action="bell" aria-label="通知" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><i hidden></i>
+      </button>
+      <div class="bell-panel card" id="bell-panel" hidden></div>
+    </div>
     <button type="button" class="top-user" data-action="logout">退出</button>`;
+  const bell = document.querySelector('[data-action="bell"]');
+  const bellPanel = document.getElementById('bell-panel');
+  const renderNotifications = data => {
+    bell.querySelector('i').hidden = !data.unread;
+    bellPanel.innerHTML = data.items.length
+      ? data.items.map(item => `<a class="bell-item${item.read ? '' : ' unread'}" href="${escapeHtml(item.link || '#')}"><b>${escapeHtml(item.title)}</b><span>${escapeHtml(item.body || '')}</span><small>${new Date(item.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</small></a>`).join('')
+      : '<div class="state">没有通知</div>';
+  };
+  api('/api/notifications').then(renderNotifications).catch(() => {});
   document.getElementById('mbar').innerHTML = [
     ...NAV.filter(item => item.short).map(item => mobileItem(item, page)),
     `<span class="off" aria-disabled="true">${icon('more')}更多</span>`
@@ -101,6 +116,17 @@ export async function initShell({ page }) {
 
   document.addEventListener('click', event => {
     if (event.target.closest('[data-action="logout"]')) { logout(); return; }
+    if (event.target.closest('[data-action="bell"]')) {
+      bellPanel.hidden = !bellPanel.hidden;
+      bell.setAttribute('aria-expanded', String(!bellPanel.hidden));
+      // 打开即视为已读；本次仍按未读样式显示，下次打开时变淡。
+      if (!bellPanel.hidden && !bell.querySelector('i').hidden) {
+        bell.querySelector('i').hidden = true;
+        fetch('/api/notifications/read', { method: 'POST' }).catch(() => {});
+      }
+      return;
+    }
+    if (!event.target.closest('.bell-wrap')) { bellPanel.hidden = true; bell.setAttribute('aria-expanded', 'false'); }
     const button = event.target.closest('[data-sector]');
     if (!button || button.dataset.sector === sector) return;
     sector = button.dataset.sector;
