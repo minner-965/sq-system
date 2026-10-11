@@ -27,6 +27,8 @@ WORK_LIST_API = "/janus/douyin/creator/pc/work_list"
 MAX_WORK_PAGES = 5
 MESSAGE_PAGE = "https://creator.douyin.com/creator-micro/data/following/chat"
 MAX_MESSAGE_ROWS = 30
+# 会话行上平台自己加的标签，不是对方说的话。
+ROW_LABELS = {"粉丝", "朋友", "已关注", "互相关注", "置顶", "未读", "官方"}
 # 会话列表里的时间：刚刚、3分钟前、昨天 12:30、星期二、10-09、2026-10-09、12:30。
 TIME_LIKE = re.compile(r"^(刚刚|\d+\s*(秒|分钟|小时|天)前|(昨天|前天|星期.|周.)(\s*\d{1,2}:\d{2})?|(\d{4}[-/.])?\d{1,2}[-/.]\d{1,2}(\s+\d{1,2}:\d{2})?|\d{1,2}:\d{2}|(\d{4}年)?\d{1,2}月\d{1,2}日)$")
 
@@ -244,7 +246,7 @@ async def read_stranger_messages(account_id) -> dict:
             for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
                 lines = [line.strip() for line in (await rows.nth(index).inner_text()).splitlines() if line.strip()]
                 # 一行会话 = 昵称、时间、最近一句话、未读数。去掉时间和纯数字，第一项是昵称，其余是内容。
-                lines = [line for line in lines if not TIME_LIKE.match(line) and not line.isdigit()]
+                lines = [line for line in lines if not TIME_LIKE.match(line) and not line.isdigit() and line not in ROW_LABELS]
                 if len(lines) >= 2:
                     result["rows"].append({"sender_name": lines[0][:60], "text": " ".join(lines[1:])[:2000]})
             return result
