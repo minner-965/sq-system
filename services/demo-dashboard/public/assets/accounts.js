@@ -3,6 +3,7 @@ import { api, escapeHtml, initShell } from './shell.js';
 const byId = id => document.getElementById(id);
 const shell = await initShell({ page: 'accounts' });
 const isAdmin = shell.user.role === 'ADMIN';
+const canWrite = shell.user.can_write;
 const LOGIN_NAME = { never: '还没有登录过', ok: '登录正常', expired: '需重新扫码' };
 const TYPE_NAME = { personal: '个人号', enterprise: '企业号', professional: '专业号' };
 let polling;
@@ -34,11 +35,11 @@ function accountCard(account) {
         <div><span>今天已发 / 每日上限</span><b>${account.published_today} / ${account.daily_limit} 条</b></div>
         <div><span>待发布</span><b>${account.queued} 条</b></div>
       </div>
-      ${isAdmin ? `<div class="msg-actions" style="margin-top:16px">
-        <button class="btn sm pri" type="button" data-act="login"${account.connected && !waiting ? '' : ' disabled'}>${account.login_status === 'ok' ? '重新扫码登录' : '扫码登录'}</button>
-        <button class="btn sm" type="button" data-act="pause" data-paused="${account.is_paused}">${account.is_paused ? '恢复发布' : '暂停发布'}</button>
+      ${canWrite ? `<div class="msg-actions" style="margin-top:16px">
+        <button class="btn sm pri" type="button" data-act="login"${account.connected && !waiting ? '' : ' disabled'}>${account.login_status === 'ok' ? '重新扫码 / 换一个号' : '扫码登录'}</button>
+        ${isAdmin ? `<button class="btn sm" type="button" data-act="pause" data-paused="${account.is_paused}">${account.is_paused ? '恢复发布' : '暂停发布'}</button>
         <button class="btn sm" type="button" data-act="limit" data-limit="${account.daily_limit}">改每日上限</button>
-        <button class="btn sm" type="button" data-act="rename" data-name="${escapeHtml(account.account_name)}">改名称</button>
+        <button class="btn sm" type="button" data-act="rename" data-name="${escapeHtml(account.account_name)}">改名称</button>` : ''}
       </div>` : ''}
     </div></section>`;
 }
@@ -50,7 +51,7 @@ async function load() {
     byId('publisher-line').textContent = data.publisher.online ? '发布程序正在这台电脑上运行'
       : `发布程序没有在运行${data.publisher.last_seen_at ? `（最后在线 ${dateTime(data.publisher.last_seen_at)}）` : ''}。扫码登录和到点发布都需要它：双击 publisher 文件夹里的 start-publisher.cmd`;
     byId('list').innerHTML = data.items.length ? `<div class="stack">${data.items.map(accountCard).join('')}</div>`
-      : `<div class="card"><div class="state"><b>还没有发布账号</b>${isAdmin ? '点右上角“添加账号”' : '管理员添加后会显示在这里'}</div></div>`;
+      : `<div class="card"><div class="state"><b>还没有发布账号</b>${canWrite ? '点右上角“添加账号”' : '管理员添加后会显示在这里'}</div></div>`;
     clearTimeout(polling);
     // 有账号在等扫码时自动刷新，扫完马上能看到结果。
     if (data.items.some(account => ['queued', 'opened'].includes(account.login_request_status))) polling = setTimeout(load, 4000);
@@ -88,8 +89,8 @@ byId('list').addEventListener('click', async event => {
   }
 });
 
-if (!isAdmin) byId('publisher-line').insertAdjacentHTML('afterend', '<p class="meta">添加账号和扫码登录要用管理员账号（admin）</p>');
-if (isAdmin) {
+if (!canWrite) byId('publisher-line').insertAdjacentHTML('afterend', '<p class="meta">这个账号只能查看，添加账号和扫码登录请用招商或管理员账号</p>');
+if (canWrite) {
   byId('open-add').hidden = false;
   byId('open-add').addEventListener('click', () => { byId('add').hidden = false; byId('a-name').focus(); });
   byId('cancel-add').addEventListener('click', () => { byId('add').hidden = true; });
