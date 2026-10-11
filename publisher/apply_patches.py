@@ -164,6 +164,12 @@ class DouYinBaseUploader(BaseVideoUploader):''',
         '        source = getattr(self, "repost_source", "") or ""\n        # 恒兆补丁：没有指定转载来源就不做“来源转载”声明（原来会声明成转载且来源留空，我们发的是自己的内容）。\n        if not source:\n            return\n        try:\n            # 1. 点「添加内容类型声明」',
         "2026-10-11：小红书发布时组件默认添加“来源转载”声明且来源为空。我们发的是自己的内容；改为没有来源就不声明。",
     ),
+    (
+        "uploader/douyin_uploader/main.py",
+        '                await page.wait_for_timeout(2500)  # 等页面稳定，避免瞬时跳转误判\n                has_login = await page.get_by_text("手机号登录").count() or await page.get_by_text("扫码登录").count()',
+        '                # 恒兆补丁：登录失效时登录框要好几秒才出来，只等 2.5 秒会把失效误判成有效。最多等 15 秒，看到登录框或看到已登录的页面就停。\n                for _hz_wait in range(15):\n                    await page.wait_for_timeout(1000)\n                    if await page.get_by_text("扫码登录").count() or await page.get_by_text("验证码登录").count() or await page.locator(\'input[type="file"]\').count():\n                        break\n                has_login = await page.get_by_text("手机号登录").count() or await page.get_by_text("扫码登录").count() or await page.get_by_text("验证码登录").count()',
+        "2026-10-11：抖音登录已经失效，组件的检查却说有效（只等 2.5 秒，登录框还没渲染出来），结果“扫码登录”不弹二维码、直接报成功。",
+    ),
 ]
 
 
