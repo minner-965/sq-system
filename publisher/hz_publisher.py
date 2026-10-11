@@ -32,7 +32,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v8"
+VERSION = "v9"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 两条私信回复之间至少隔这么久（发得太密容易被平台限制）。
@@ -81,7 +81,7 @@ def sau(*args: str, timeout: int = 120, capture: bool = True, extra_env: dict[st
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", **(extra_env or {})}
     return subprocess.run(
         [sys.executable, "sau_cli.py", *args], cwd=VENDOR, env=env, timeout=timeout,
-        capture_output=capture, text=True, encoding="utf-8", errors="replace",
+        capture_output=capture, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
     )
 
 
@@ -94,7 +94,8 @@ def run_upload(conn: psycopg.Connection, task: dict, args: list[str], screenshot
     started = time.monotonic()
     notified = False
     with open(log_file, "w", encoding="utf-8", errors="replace") as output:
-        process = subprocess.Popen([sys.executable, "sau_cli.py", *args, "--headed"], cwd=VENDOR, env=env, stdout=output, stderr=subprocess.STDOUT)
+        process = subprocess.Popen([sys.executable, "sau_cli.py", *args, "--headed"], cwd=VENDOR, env=env, stdout=output, stderr=subprocess.STDOUT,
+                                   stdin=subprocess.DEVNULL)  # 组件遇到验证码时会想在这个黑色窗口里等人打字；不给它键盘，一律在浏览器窗口里处理
         while process.poll() is None:
             if not notified and flag.exists():
                 notified = True
