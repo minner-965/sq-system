@@ -24,20 +24,24 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from douyin_reader import ReplyError, read_douyin, read_stranger_messages, send_comment_reply
+from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply
 
 HERE = Path(__file__).parent.resolve()
 ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v5"
+VERSION = "v6"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
+METRICS_HOURS = 6
+METRICS_DAYS = 30
 MIN_GAP_MINUTES = 10
 UPLOAD_TIMEOUT_SECONDS = 15 * 60
 # 发布组件里各平台的名字。没列出的平台还没有接入。
-SAU_PLATFORM = {"douyin": "douyin"}
+SAU_PLATFORM = {"douyin": "douyin", "xiaohongshu": "xiaohongshu", "channels": "tencent"}
+# 只能发视频、不能发图文的平台。
+VIDEO_ONLY = {"channels"}
 PLATFORM_LABEL = {"douyin": "抖音", "channels": "视频号", "xiaohongshu": "小红书", "moments": "朋友圈"}
 
 
@@ -261,6 +265,9 @@ def publish(conn: psycopg.Connection, task: dict) -> None:
     if missing:
         fail(conn, task, f"素材文件找不到：{Path(missing[0]).name}")
         return
+    if not videos and task["platform"] in VIDEO_ONLY:
+        fail(conn, task, f"{PLATFORM_LABEL[task['platform']]}只能发视频，这条素材里没有视频")
+        return
     tags = ",".join(task["topics"] or [])
     title = task["title"] or task["topic"]
     if videos:
@@ -296,7 +303,7 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
     """读一遍这个账号：给刚发布的内容补上帖子链接；把我们发布的帖子下的新评论收进互动收件箱。
     只读我们自己通过系统发布的帖子，账号上原有的其他作品不碰。返回一句结果说明。"""
     if account["platform"] != "douyin":
-        return f"{PLATFORM_LABEL[account['platform']]}还没有接入读取"
+        return f"{PLATFORM_LABEL[account['platform']]}的评论和私信请在手机上查看"
     linked = conn.execute(
         "SELECT id, platform_post_id, title, post_url FROM leadgen.publish_tasks WHERE account_id = %s AND platform_post_id IS NOT NULL", (account["id"],)).fetchall()
     unlinked = conn.execute(
@@ -419,6 +426,35 @@ def process_inbox_checks(conn: psycopg.Connection) -> None:
         print(f"{account['account_name']}：{note}")
 
 
+def process_metrics(conn: psycopg.Connection) -> None:
+    """已发布帖子的浏览、点赞等数据：每 6 小时读一次，发布满 30 天后不再读。一轮只读一个账号。"""
+    account = conn.execute(
+        """
+        SELECT a.id, a.account_name, array_agg(t.platform_post_id) AS post_ids
+        FROM leadgen.publish_accounts a JOIN leadgen.publish_tasks t ON t.account_id = a.id
+        WHERE a.platform = 'douyin' AND a.login_status = 'ok' AND t.status = 'published' AND t.platform_post_id IS NOT NULL
+          AND t.published_at > now() - make_interval(days => %s)
+          AND (t.metrics_at IS NULL OR t.metrics_at < now() - make_interval(hours => %s))
+        GROUP BY a.id, a.account_name LIMIT 1
+        """, (METRICS_DAYS, METRICS_HOURS)).fetchone()
+    if not account:
+        return
+    try:
+        data = asyncio.run(read_douyin_metrics(account["id"], set(account["post_ids"])))
+    except Exception as error:
+        data = {"logged_in": True, "metrics": {}}
+        print(f"{account['account_name']}：帖子数据没读到：{error}"[:200])
+    for post_id, numbers in data["metrics"].items():
+        conn.execute(
+            """UPDATE leadgen.publish_tasks SET stat_views = %s, stat_likes = %s, stat_comments = %s, stat_favorites = %s, stat_shares = %s,
+                 metrics_at = now(), stats_at = now() WHERE account_id = %s AND platform_post_id = %s""",
+            (numbers["views"], numbers["likes"], numbers["comments"], numbers["favorites"], numbers["shares"], account["id"], post_id))
+    # 这一轮没读到的也记上时间，6 小时后再试，免得每 20 秒重试一次。
+    conn.execute("UPDATE leadgen.publish_tasks SET metrics_at = now() WHERE account_id = %s AND platform_post_id = ANY(%s) AND NOT (platform_post_id = ANY(%s))",
+                 (account["id"], account["post_ids"], list(data["metrics"])))
+    print(f"{account['account_name']}：读了 {len(data['metrics'])} 条帖子的数据")
+
+
 def process_replies(conn: psycopg.Connection) -> None:
     """把人工确认过的回复发到平台上。一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。
     追评在评论管理页上不单独显示，回复落在它所在的那条一级评论下面（同一串对话里）。"""
@@ -479,6 +515,11 @@ def main(argv: list[str]) -> int:
         return command_login(argv[2])
     if command == "check":
         return command_check()
+    if command == "metrics":
+        # 只读一遍已发布帖子的数据，不发布任何内容。
+        with connect() as conn:
+            process_metrics(conn)
+        return 0
     if command == "sync":
         # 只读一遍各账号（补帖子链接、收新评论），不发布任何内容。
         with connect() as conn:
@@ -523,6 +564,7 @@ def main(argv: list[str]) -> int:
                         process_due(conn)
                         process_inbox_checks(conn)
                         process_replies(conn)
+                        process_metrics(conn)
                         time.sleep(POLL_SECONDS)
             except psycopg.OperationalError:
                 print("数据库连接断了，15 秒后重新连接。")

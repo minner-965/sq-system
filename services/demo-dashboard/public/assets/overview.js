@@ -67,7 +67,9 @@ function renderPublishing(publishing) {
       <div class="t"><span class="co">${escapeHtml(item.topic)}</span><span>${escapeHtml(item.platform_name)} · ${when(item.at)}</span></div>
       <span class="status ${TASK_CLASS[item.status]}">${escapeHtml(item.status_name)}</span></a>`).join('')
     : empty('还没有发布内容', '在“内容发布”里上传素材、生成文案后会出现在这里');
-  byId('publishing').innerHTML = `${tasks}<div class="plat">${publishing.platforms.map(platform => `<span class="tag">${platform.name} ${platform.state}</span>`).join('')}</div>`;
+  const reach = publishing.reach;
+  const reachRow = reach && reach.posts ? `<div class="facts reach"><div><span>近 30 天发布</span><b>${reach.posts} 条</b></div><div><span>浏览</span><b>${reach.metrics_at ? number(reach.views) : '—'}</b></div><div><span>意向消息</span><b>${reach.enquiries} 条</b></div><div><span>转成线索</span><b>${reach.leads} 个</b></div></div>` : '';
+  byId('publishing').innerHTML = `${reachRow}${tasks}<div class="plat">${publishing.platforms.map(platform => `<span class="tag">${platform.name} ${platform.state}</span>`).join('')}</div>`;
   byId('publishing-sub').textContent = `本周计划 ${publishing.planned_this_week} 条${publishing.waiting_confirmation ? `，待确认 ${publishing.waiting_confirmation} 条` : ''}`;
 }
 

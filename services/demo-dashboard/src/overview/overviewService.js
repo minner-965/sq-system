@@ -19,7 +19,7 @@ const TASK_STATUS_NAME = { draft: '待确认', confirmed: '待发布', publishin
 
 /** Recent publishing tasks that already have copy, plus which platforms have an account. */
 async function publishingSummary(pool) {
-  const [{ rows: items }, { rows: accounts }, { rows: [week] }] = await Promise.all([
+  const [{ rows: items }, { rows: accounts }, { rows: [week] }, { rows: [reach] }] = await Promise.all([
     pool.query(`
       SELECT t.id, t.material_id, m.topic, t.platform, t.status, COALESCE(t.published_at, t.scheduled_at, t.updated_at) AS at, t.error_message
       FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
@@ -31,10 +31,20 @@ async function publishingSummary(pool) {
                AND COALESCE(published_at, scheduled_at) >= date_trunc('week', now())
                AND COALESCE(published_at, scheduled_at) < date_trunc('week', now()) + interval '7 days')::int AS planned,
              count(*) FILTER (WHERE status = 'draft' AND body IS NOT NULL)::int AS waiting
-      FROM leadgen.publish_tasks`)
+      FROM leadgen.publish_tasks`),
+    // 近 30 天：发了多少、多少人看、带来多少意向消息和线索。
+    pool.query(`
+      SELECT (SELECT count(*)::int FROM leadgen.publish_tasks WHERE status = 'published' AND published_at > now() - interval '30 days') AS posts,
+             (SELECT COALESCE(sum(stat_views), 0)::int FROM leadgen.publish_tasks WHERE status = 'published' AND published_at > now() - interval '30 days') AS views,
+             (SELECT COALESCE(sum(stat_likes), 0)::int FROM leadgen.publish_tasks WHERE status = 'published' AND published_at > now() - interval '30 days') AS likes,
+             (SELECT max(metrics_at) FROM leadgen.publish_tasks) AS metrics_at,
+             (SELECT count(*)::int FROM leadgen.interaction_messages WHERE created_at > now() - interval '30 days'
+                AND intent IN ('inquiry', 'viewing', 'cooperation', 'booking')) AS enquiries,
+             (SELECT count(DISTINCT company_id)::int FROM leadgen.interaction_messages WHERE created_at > now() - interval '30 days' AND status = 'converted') AS leads`)
   ]);
   return {
     planned_this_week: week.planned,
+    reach,
     waiting_confirmation: week.waiting,
     items: items.map(item => ({ ...item, platform_name: PLATFORM_NAME[item.platform], status_name: TASK_STATUS_NAME[item.status] })),
     platforms: Object.entries(PLATFORM_NAME).map(([key, name]) => {
