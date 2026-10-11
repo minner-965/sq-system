@@ -131,6 +131,39 @@ class DouYinBaseUploader(BaseVideoUploader):''',
         "2026-10-11：验证框一出现就处理（原来要等发布按钮点击超时 30 秒后才轮到，Simon 已经自己点了“获取验证码”）；"
         "验证通过后不再重复点发布；发布按钮被挡住时 5 秒就放弃这一次点击。",
     ),
+    (
+        "uploader/douyin_uploader/main.py",
+        """        if not self.declaration:
+            self.declaration = "内容由AI生成"
+        await self.apply_self_declaration(page)""",
+        """        # 恒兆补丁：没有明确指定就不加自主声明（原来会默认声明“内容由AI生成”，我们发的是实拍视频）。
+        await self.apply_self_declaration(page)""",
+        "2026-10-11：发视频时组件默认勾选自主声明“内容由AI生成”。我们的视频是实拍，这样标不符合事实；改为不指定就不声明。",
+    ),
+    (
+        "uploader/douyin_uploader/main.py",
+        '                # 检测并处理短信验证码弹窗\n                sms_input = page.locator(\'input[placeholder*="验证码"], input[type="tel"], input[placeholder*="短信"], input[placeholder*="手机号"]\').first\n                if await sms_input.count() and await sms_input.is_visible():\n                    douyin_logger.warning(_msg("📱", "检测到短信验证码弹窗"))\n                    # 点击「获取验证码」按钮（仅首次）\n                    get_code_btn = page.get_by_text("获取验证码").first\n                    if await get_code_btn.count() and await get_code_btn.is_visible():\n                        await get_code_btn.click()\n                        douyin_logger.info(_msg("📤", "已点击「获取验证码」，请查看手机短信"))\n                    code_file = os.path.join(BASE_DIR, "verify_code.txt")\n                    code = await _read_verify_code(code_file)\n                    if code:\n                        sms_prompt_logged = False\n                        await self._submit_sms_verify_code(page, sms_input, code, code_file)\n                    elif not sms_prompt_logged:\n                        douyin_logger.warning(_msg("⏳", f"等待验证码输入；可在交互终端直接输入，或写入文件: {code_file}"))\n                        sms_prompt_logged = True\n',
+        '                # 恒兆补丁：验证码只在弹出的浏览器窗口里输入；这里自动点“获取验证码”、提醒人，然后等。\n                await _hz_wait_for_sms(page)\n',
+        "2026-10-11：发视频遇到短信验证时，组件会停在黑色窗口里等人打字输入验证码，浏览器里输了也不认，15 分钟后超时失败。改成和图文一样：自动点获取验证码、页面提醒、等人在浏览器窗口里输入。",
+    ),
+    (
+        "uploader/douyin_uploader/main.py",
+        '                publish_button = page.get_by_role("button", name="发布", exact=True)\n                if await publish_button.count():\n                    await publish_button.click(force=True)\n                await page.wait_for_url(\n                    "https://creator.douyin.com/creator-micro/content/manage**",',
+        '                if "content/manage" not in page.url:\n                    publish_button = page.get_by_role("button", name="发布", exact=True)\n                    if await publish_button.count():\n                        await publish_button.click(force=True)\n                await page.wait_for_url(\n                    "https://creator.douyin.com/creator-micro/content/manage**",',
+        "2026-10-11：发视频时验证通过后页面已经跳走，不再重复点发布。",
+    ),
+    (
+        "uploader/tencent_uploader/main.py",
+        '        label_text = getattr(self, "content_label", None) or "含AI生成内容"\n',
+        '        # 恒兆补丁：没有明确指定标注就不标（原来默认标“含AI生成内容”，我们发的是实拍视频）。\n        if not getattr(self, "content_label", None):\n            return\n        label_text = self.content_label\n',
+        "2026-10-11：视频号发视频时组件默认把视频标注选成“含AI生成内容”。我们的视频是实拍，不符合事实；改为不指定就不标。",
+    ),
+    (
+        "uploader/xiaohongshu_uploader/main.py",
+        '        source = getattr(self, "repost_source", "") or ""\n        try:\n            # 1. 点「添加内容类型声明」',
+        '        source = getattr(self, "repost_source", "") or ""\n        # 恒兆补丁：没有指定转载来源就不做“来源转载”声明（原来会声明成转载且来源留空，我们发的是自己的内容）。\n        if not source:\n            return\n        try:\n            # 1. 点「添加内容类型声明」',
+        "2026-10-11：小红书发布时组件默认添加“来源转载”声明且来源为空。我们发的是自己的内容；改为没有来源就不声明。",
+    ),
 ]
 
 
