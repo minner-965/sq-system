@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>留资线索 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>留资线索</h1>
+          <p id="sub">客人扫码后自己填写的联系方式，已经进了“招商客户”的待联系</p>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+
+      <section class="card">
+        <div id="list"><div class="state">正在加载</div></div>
+      </section>
+      <div class="pager" id="pager" hidden>
+        <button class="btn" type="button" id="prev">上一页</button>
+        <span id="page-info"></span>
+        <button class="btn" type="button" id="next">下一页</button>
+      </div>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/leads.js"></script>
+</body>
+</html>

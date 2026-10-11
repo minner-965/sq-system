@@ -61,6 +61,17 @@
       </div>
     </main>
   </div>
+  <dialog class="sheet" id="qr" aria-labelledby="qr-title">
+    <div class="sheet-head"><h3 id="qr-title">留资二维码</h3><button class="btn sm" type="button" id="qr-close">关闭</button></div>
+    <div class="sheet-body">
+      <p class="meta" id="qr-for"></p>
+      <div class="qr-box" id="qr-image"></div>
+      <div class="field"><label for="qr-url">留资链接</label><input id="qr-url" readonly></div>
+      <p class="meta late" id="qr-note" hidden></p>
+      <p class="meta">客人扫码后填称呼、电话和需求，提交后进“招商客户”的待联系，并记下是从这条内容来的。把二维码放进图片或视频里，或者把链接放在评论区。</p>
+      <div class="form-actions"><button class="btn" type="button" id="qr-copy">复制链接</button><a class="btn pri" id="qr-download" download>下载二维码</a></div>
+    </div>
+  </dialog>
   <nav class="mbar" id="mbar" aria-label="主导航"></nav>
   <script type="module" src="/assets/publishing.js"></script>
 </body>

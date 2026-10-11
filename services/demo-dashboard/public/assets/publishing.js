@@ -157,6 +157,7 @@ function taskCard(task) {
       ${task.status === 'confirmed' && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-withdraw>撤回</button></div>' : ''}
       ${task.status === 'removed' ? `<div class="notice">这条已于 ${dateTime(task.removed_at)} 标记为“已在平台删除”${task.removed_note ? `：${escapeHtml(task.removed_note)}` : ''}</div>` : ''}
       ${task.status === 'published' && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-removed>已在平台上删除</button></div>' : ''}
+      ${task.has_body && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-qr>留资二维码</button></div>' : ''}
       ${task.version_count > 1 ? `<details class="why versions"><summary>历史版本（${task.version_count}）</summary><div data-versions></div></details>` : ''}
     </div></section>`;
 }
@@ -218,6 +219,20 @@ function setupDetail() {
     const card = event.target.closest('[data-task]');
     if (!card) return;
     if (event.target.closest('[data-regenerate]')) { generate(event.target, card.dataset.platform); return; }
+    if (event.target.closest('[data-qr]')) {
+      try {
+        const form = await send(`/api/publishing/tasks/${card.dataset.task}/lead-form`, 'POST');
+        byId('qr-for').textContent = `${form.platform_name} · ${form.topic}`;
+        byId('qr-image').innerHTML = form.qr_svg;
+        byId('qr-url').value = form.url;
+        byId('qr-note').textContent = form.address_note || '';
+        byId('qr-note').hidden = !form.address_note;
+        byId('qr-download').href = URL.createObjectURL(new Blob([form.qr_svg], { type: 'image/svg+xml' }));
+        byId('qr-download').download = `留资二维码-${form.platform_name}-${form.code}.svg`;
+        byId('qr').showModal();
+      } catch (error) { notice(error.message); }
+      return;
+    }
     if (event.target.closest('[data-removed]')) {
       const note = prompt('这条帖子已经在平台上删掉了吗？可以写一句原因（可不填）。系统只做记录，不会去平台上删。');
       if (note === null) return;
@@ -288,4 +303,14 @@ if (materialId) {
   });
   await loadList();
   if (location.hash === '#calendar') showView('calendar');
+}
+
+if (byId('qr')) {
+  byId('qr-close').addEventListener('click', () => byId('qr').close());
+  byId('qr').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+  byId('qr-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(byId('qr-url').value); byId('qr-copy').textContent = '已复制'; }
+    catch { byId('qr-url').select(); }
+    setTimeout(() => { byId('qr-copy').textContent = '复制链接'; }, 2000);
+  });
 }

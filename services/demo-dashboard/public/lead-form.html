@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>留下联系方式 · 恒兆广场</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="lead">
+  <main class="lead-card card">
+    <div class="brand-row"><span class="logo">恒</span><b>恒兆广场</b></div>
+    <h1 id="title">留下联系方式</h1>
+    <p class="lead-sub" id="sub">填好后，我们的同事会在工作时间联系您。</p>
+
+    <div class="state" id="loading">正在打开</div>
+    <div class="state" id="gone" hidden><b>这个页面已经失效</b>请联系发给您二维码的同事</div>
+
+    <form id="form" hidden novalidate>
+      <div class="field">
+        <label for="f-name">怎么称呼您</label>
+        <input id="f-name" name="contact_name" maxlength="20" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="f-phone">手机号</label>
+        <input id="f-phone" name="phone" type="tel" inputmode="numeric" maxlength="13" autocomplete="tel" required>
+      </div>
+      <div class="field">
+        <label for="f-sector">想了解</label>
+        <select id="f-sector" name="sector_key"></select>
+      </div>
+      <div class="field">
+        <label for="f-need">您的需求（选填）</label>
+        <textarea id="f-need" name="need" maxlength="300" rows="3" placeholder="比如：想找 100 平左右的办公室，下个月入驻"></textarea>
+      </div>
+      <!-- 给自动提交的程序准备的一栏，人看不到也不用填。 -->
+      <div class="hp" aria-hidden="true"><label for="f-website">网址</label><input id="f-website" name="website" tabindex="-1" autocomplete="off"></div>
+      <label class="check consent"><input type="checkbox" id="f-consent" required> <span>我同意恒兆广场用以上信息联系我。信息只用于这次咨询，不会提供给其他单位。</span></label>
+      <div class="form-error" id="error" role="alert"></div>
+      <button class="btn pri" type="submit" id="submit">提交</button>
+    </form>
+
+    <div class="state done" id="done" hidden><b>已收到，谢谢</b>我们的同事会在工作时间联系您。这个页面可以关掉了。</div>
+  </main>
+  <script type="module" src="/assets/lead-form.js"></script>
+</body>
+</html>
