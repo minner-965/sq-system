@@ -263,6 +263,10 @@ class ReplyError(RuntimeError):
     """回复没有发出去；信息是给招商员看的。"""
 
 
+class StrangerTabError(ReplyError):
+    """没进到陌生人私信一栏。这时页面上是别的栏目（可能有朋友的聊天），不留截图。"""
+
+
 async def _open_stranger_tab(page) -> None:
     """切到“陌生人私信”一栏并等它稳定下来；切不过去就报错，绝不在别的栏目里继续。"""
     tab = page.get_by_role("tab", name="陌生人私信")
@@ -270,14 +274,15 @@ async def _open_stranger_tab(page) -> None:
         await tab.wait_for(state="visible", timeout=40000)
     except Exception:
         raise ReplyError("打不开私信管理页，可能需要重新扫码登录")
-    for _ in range(5):
+    # 页面还在加载时点栏目不生效，多试几次。
+    for _ in range(12):
         await page.wait_for_timeout(3000)
         if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() == "陌生人私信":
             break
         await tab.click()
     await page.wait_for_timeout(10000)
     if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() != "陌生人私信":
-        raise ReplyError("没能切到陌生人私信一栏")
+        raise StrangerTabError("没能切到陌生人私信一栏")
 
 
 async def send_stranger_message(account_id, sender_name: str, last_text: str, reply_text: str, rehearse: bool = False) -> None:
@@ -291,6 +296,11 @@ async def send_stranger_message(account_id, sender_name: str, last_text: str, re
             await page.goto(MESSAGE_PAGE, wait_until="domcontentloaded", timeout=90000)
             await _open_stranger_tab(page)
             rows = page.locator(".semi-tabs-pane-active .ReactVirtualized__Grid__innerScrollContainer > *")
+            # 列表要过一会儿才出来：等到有会话，或者明确显示没有私信。
+            for _ in range(15):
+                if await rows.locator("[class*='item-header-name']").count() or await page.locator(".semi-tabs-pane-active").get_by_text("还没有收到私信").count():
+                    break
+                await page.wait_for_timeout(2000)
             target = None
             for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
                 row = rows.nth(index)
@@ -344,6 +354,8 @@ async def send_stranger_message(account_id, sender_name: str, last_text: str, re
             if not posted:
                 raise ReplyError("点了发送，但没有在聊天记录里看到这句话，请到手机上确认")
             await context.storage_state(path=str(cookie_file(account_id)))
+        except StrangerTabError:
+            raise
         except Exception:
             try:
                 (HERE / "state" / "diagnostics").mkdir(parents=True, exist_ok=True)
