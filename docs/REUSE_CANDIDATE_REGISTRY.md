@@ -24,6 +24,7 @@
 | umzug | 3.8.3 | MIT | 数据库迁移执行（WP02 引入，见下） |
 | express-session、connect-pg-simple、express-rate-limit | 1.19.0 / 10.0.0 / 8.7.0 | MIT | 账号登录（WP03 引入，见下） |
 | chart.js | 4.5.1 | MIT | 图表（WP03 引入，见下） |
+| multer | 2.4.0 | MIT | 素材上传（WP06 引入，见下） |
 | pdf-to-img（仅开发依赖） | 6.3.0 | MIT | 房源导入时把平面图 PDF 拆成图片；不进运行镜像 |
 
 WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
@@ -34,6 +35,16 @@ WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
 |---|---|---|---|
 | 平台发布 | WP06 | social-auto-upload（计划注明 MIT，引入前核对） | 未评估 |
 | 朋友圈发布 | WP08 | uiautomator2 | 未评估 |
+
+## WP06 第一阶段的选型记录（2026-10-11）
+
+| 用途 | 采用 | 版本 | 来源 | 许可 | 维护状态（npm，2026-10-11 查） | 说明 |
+|---|---|---|---|---|---|---|
+| 接收上传的图片和视频 | multer | 2.4.0 | https://github.com/expressjs/multer | MIT | 2026-09 发布，Express 官方维护 | Express 处理文件上传的标准中间件 |
+
+大模型调用没有用 SDK：DeepSeek、智谱、通义都兼容 OpenAI 的 `chat/completions`，一个 `fetch` 请求就够，封装在 `src/llm/llmClient.js`。
+
+抖音发布要用的 social-auto-upload、Playwright 属于第二阶段，引入时再登记并锁定版本。
 
 ## WP05 的选型记录（2026-10-11）
 

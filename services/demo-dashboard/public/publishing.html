@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内容发布 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <a class="back" href="/publishing.html" id="back" hidden>‹ 返回素材列表</a>
+      <div class="head">
+        <div>
+          <h1 id="title">内容发布</h1>
+          <p id="sub">上传素材，按平台生成文案，确认后到点发布</p>
+        </div>
+        <div class="btns">
+          <button class="btn pri" type="button" id="open-upload" data-requires="write">上传素材</button>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+
+      <section class="card settings" id="upload" hidden>
+        <div class="ph"><div><h3>上传素材</h3><p>图片最多 18 张，第一张作封面；视频最多 1 个</p></div></div>
+        <form class="pb form-grid" id="upload-form">
+          <div class="field wide"><label for="topic">主题（一句话说清这次宣传什么）</label><input id="topic" name="topic" maxlength="100" required placeholder="例如：1 栋 13 层 193 平精装写字楼招租"></div>
+          <div class="field"><label for="content-type">内容类型</label><select id="content-type" name="content_type" required></select></div>
+          <div class="field" id="property-field"><label for="property">关联房源（可不选）</label><select id="property" name="property_id"></select></div>
+          <div class="field wide"><label for="files">图片和视频</label><input id="files" name="files" type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" required></div>
+          <div class="field wide"><label for="note">补充说明（卖点、活动时间等，文案只会用这里和房源资料里的内容）</label><textarea id="note" name="note" maxlength="1000"></textarea></div>
+          <fieldset class="field wide"><legend>目标平台</legend><span id="platform-boxes"></span></fieldset>
+          <div class="wide form-actions"><span class="form-error" id="upload-error" role="alert"></span><button class="btn" type="button" id="cancel-upload">取消</button><button class="btn pri" type="submit" id="upload-submit">提交</button></div>
+        </form>
+      </section>
+
+      <div id="list-view">
+        <div class="card">
+          <div class="toolbar"><div class="tabs"><button type="button" aria-selected="true">全部素材</button></div>
+            <label class="toggle"><input type="checkbox" id="mine">只看我上传的</label></div>
+          <div id="list"><div class="state">正在加载</div></div>
+        </div>
+        <details class="card settings" id="accounts" style="margin-top:16px">
+          <summary>发布账号</summary>
+          <div id="account-list"></div>
+          <form class="pb form-grid" id="account-form" hidden>
+            <div class="field"><label for="account-platform">平台</label><select id="account-platform" name="platform"></select></div>
+            <div class="field"><label for="account-name">账号名称</label><input id="account-name" name="account_name" maxlength="40" required></div>
+            <div class="wide form-actions"><span class="form-error" id="account-error" role="alert"></span><button class="btn pri" type="submit">添加账号</button></div>
+          </form>
+        </details>
+      </div>
+
+      <div id="detail-view" hidden>
+        <section class="card"><div class="pb"><div class="thumbs" id="thumbs"></div><div class="facts" id="facts"></div></div></section>
+        <div class="draft-bar"><button class="btn pri" type="button" id="generate-all" data-requires="write">生成全部文案</button><span class="foot-note" id="model-note"></span></div>
+        <div class="draft-grid" id="tasks"></div>
+      </div>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/publishing.js"></script>
+</body>
+</html>
