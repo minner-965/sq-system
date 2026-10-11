@@ -10,7 +10,8 @@ export const PHASE5_QUEUES = Object.freeze({
   SCORE_ALL_ELIGIBLE: 'score-all-eligible',
   REPLAY_RULE_VERSION: 'replay-rule-version',
   EXPORT_BUSINESS_DATA: 'export-business-data',
-  DISCOVER_COMPANIES: 'discover-companies'
+  DISCOVER_COMPANIES: 'discover-companies',
+  CLASSIFY_INTERACTIONS: 'classify-interactions'
 });
 
 export const PHASE5_QUEUE_NAMES = Object.freeze(Object.values(PHASE5_QUEUES));

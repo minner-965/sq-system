@@ -20,6 +20,8 @@ import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
 import { createCustomerRouter } from './customers/customerRoutes.js';
 import { createLlmClient } from './llm/llmClient.js';
 import { createPublishingRouter } from './publishing/publishingRoutes.js';
+import { createInboxRouter } from './inbox/inboxRoutes.js';
+import { classifyPending } from './inbox/inboxService.js';
 
 const { Pool } = pg;
 const app = express();
@@ -80,7 +82,9 @@ const jobQueue = createPhase5Queue({
   handlers: {
     [PHASE5_QUEUES.SCORE_COMPANY]: scoreCompany,
     [PHASE5_QUEUES.REPLAY_RULE_VERSION]: scoreCompany,
-    [PHASE5_QUEUES.DISCOVER_COMPANIES]: discoverCompanies
+    [PHASE5_QUEUES.DISCOVER_COMPANIES]: discoverCompanies,
+    // 读取程序写进来的评论和私信，每分钟分一次类。
+    [PHASE5_QUEUES.CLASSIFY_INTERACTIONS]: () => classifyPending(pool, { llm })
   }
 });
 
@@ -140,6 +144,7 @@ function mountWorkspace(auth) {
   app.use('/api', createLeasingRouter({ pool, auth }));
   app.use('/api', createCustomerRouter({ pool, auth }));
   app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
+  app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })
@@ -197,7 +202,10 @@ async function start() {
   }
   await jobQueue.start();
   // 每天 07:30 检索一次周边企业（设置里可以关）。由应用登记，worker 执行。
-  if (httpListenEnabled && jobQueue.enabled) await jobQueue.schedule(PHASE5_QUEUES.DISCOVER_COMPANIES, '30 7 * * *');
+  if (httpListenEnabled && jobQueue.enabled) {
+    await jobQueue.schedule(PHASE5_QUEUES.DISCOVER_COMPANIES, '30 7 * * *');
+    await jobQueue.schedule(PHASE5_QUEUES.CLASSIFY_INTERACTIONS, '* * * * *');
+  }
   const server = httpListenEnabled
     ? app.listen(port, '0.0.0.0', () => console.log(`App listening on ${port}`))
     : null;

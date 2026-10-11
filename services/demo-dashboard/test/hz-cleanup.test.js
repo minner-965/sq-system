@@ -33,9 +33,9 @@ test('every relative import in src resolves to an existing file', () => {
   }
 });
 
-test('job queues are limited to scoring, export and company discovery', () => {
+test('job queues are limited to scoring, export, company discovery and message classification', () => {
   assert.deepEqual([...PHASE5_QUEUE_NAMES].sort(),
-    ['discover-companies', 'export-business-data', 'replay-rule-version', 'score-all-eligible', 'score-company']);
+    ['classify-interactions', 'discover-companies', 'export-business-data', 'replay-rule-version', 'score-all-eligible', 'score-company']);
 });
 
 test('mainland phone numbers normalize in both local and international form', () => {
