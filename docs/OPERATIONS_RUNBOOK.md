@@ -57,7 +57,8 @@ docker compose down                   # 停止，保留数据
 - 首次安装或换电脑：在仓库根目录执行 `powershell -ExecutionPolicy Bypass -File publisher\setup.ps1`。它会建虚拟环境、下载并固定开源发布组件、安装自动化用的浏览器。可重复运行。
 - 扫码登录：`publisher\.venv\Scripts\python.exe publisher\hz_publisher.py login 抖音测试号`（最后是“内容发布”页里的账号名称）。会弹出浏览器，用对应平台的手机 App 扫码。
 - 检查登录是否还有效：`publisher\.venv\Scripts\python.exe publisher\hz_publisher.py check`
-- 常驻运行：`publisher\.venv\Scripts\python.exe publisher\hz_publisher.py run`。它每 20 秒看一次有没有到点的已确认任务，一次只发一条。不开它，确认过的内容不会发出去。
+- 常驻运行：双击 `publisher\start-publisher.cmd`（等于执行 `publisher\.venv\Scripts\python.exe publisher\hz_publisher.py run`），窗口要一直开着。它每 20 秒看一次有没有到点的已确认任务，一次只发一条；页面上发起的扫码登录也由它弹窗。不开它，确认过的内容不会发出去，“发布账号”页会显示“发布程序没有在运行”。
+- 账号的扫码、暂停、每日上限都在系统的“发布账号”页操作。
 - 只处理一遍：把上面的 `run` 换成 `once`。
 - 登录状态存在 `publisher/state/`，等同于账号密码，不进 Git，不要外传；备份时带上它。
 - 发布失败不会自动重试。处理完原因后，在页面上重新确认。

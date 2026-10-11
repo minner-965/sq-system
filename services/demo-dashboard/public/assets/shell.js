@@ -8,6 +8,7 @@ const ICONS = {
   publishing: '<path d="M4 4h16v12H5.2L4 17.5z"/><path d="M8 9h8M8 12h5"/>',
   leads: '<path d="M4 4h16v16H4z"/><path d="M4 9h16M9 20V9"/>',
   inbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5a4 4 0 0 0 8 0h5"/>',
+  accounts: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5 17a4 4 0 0 1 8 0M15 9h4M15 13h4"/>',
   reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
   more: '<path d="M4 6h16M4 12h16M4 18h16"/>'
@@ -23,6 +24,7 @@ const NAV = [
   { group: '内容' },
   { key: 'publishing', label: '内容发布', short: '发布', href: '/publishing.html' },
   { key: 'inbox', label: '互动收件箱', href: '/inbox.html', badge: true },
+  { key: 'accounts', label: '发布账号', href: '/accounts.html' },
   { key: 'leads', label: '留资线索' },
   { group: '管理' },
   { key: 'reports', label: '报表' },

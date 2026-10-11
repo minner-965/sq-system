@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INTENTS, LEAD_INTENTS, classifyMessage, matchedKeywords } from '../src/inbox/inboxService.js';
+import { INTENTS, LEAD_INTENTS, acceptKeyword, classifyByKeywords, classifyMessage, matchedKeywords } from '../src/inbox/inboxService.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEYWORDS = ['多少钱', '租', '订房', '看看', '办公室'];
@@ -19,13 +19,24 @@ test('four intents raise a reminder; ordinary interaction and spam do not', () =
   assert.deepEqual(matchedKeywords('这个多少钱，怎么租', KEYWORDS), ['多少钱', '租']);
 });
 
-test('a comment with no keyword is ordinary interaction and never reaches the model', async () => {
-  const llm = model({ intent: 'inquiry' });
-  const result = await classifyMessage({ message: comment('拍得不错'), keywords: KEYWORDS, llm });
-  assert.deepEqual([result.intent, result.source, llm.calls.length], ['chat', 'keyword', 0]);
+test('with a model configured every message is judged by it, keyword or not', async () => {
+  // “带家具不”没有任何关键词，自测里这类说法被关键词初筛漏掉了一半。
+  const llm = model({ intent: 'inquiry', reason: '问是否带家具' });
+  const result = await classifyMessage({ message: comment('带家具不'), keywords: KEYWORDS, llm });
+  assert.deepEqual([result.intent, result.source, llm.calls.length], ['inquiry', 'model', 1]);
 });
 
-test('a keyword hit or any direct message is classified by the model', async () => {
+test('the audit only learns a keyword that really occurs in the comment and is worth filtering on', () => {
+  const existing = ['多少钱'];
+  assert.equal(acceptKeyword('带看', '明天下午方便带看不', existing), '带看');
+  assert.equal(acceptKeyword('看房', '明天下午方便带看不', existing), null);
+  assert.equal(acceptKeyword('多少钱', '多少钱一个月', existing), null);
+  assert.equal(acceptKeyword('不', '带家具不', existing), null);
+  assert.equal(acceptKeyword('可以', '可以注册公司不', existing), null);
+  assert.equal(acceptKeyword('我们十来个人想搬过来', '我们十来个人想搬过来', existing), null);
+});
+
+test('the model reads the post title and its verdict is kept only when it is a known intent', async () => {
   const llm = model({ intent: 'viewing', reason: '想周六过去看办公室' });
   const viewing = await classifyMessage({ message: comment('周六可以过去看看吗，想找个 80 平的办公室'), keywords: KEYWORDS, llm });
   assert.deepEqual([viewing.intent, viewing.source, viewing.reason], ['viewing', 'model', '想周六过去看办公室']);
@@ -39,10 +50,12 @@ test('a keyword hit or any direct message is classified by the model', async () 
   assert.deepEqual([odd.intent, odd.reason], ['chat', '模型没有给出依据']);
 });
 
-test('without a model, a keyword hit is still treated as an enquiry so nobody misses it', async () => {
-  const result = await classifyMessage({ message: comment('多少钱一个月'), keywords: KEYWORDS, llm: { configured: false } });
-  assert.equal(result.intent, 'inquiry');
-  assert.match(result.reason, /出现关键词：多少钱/);
+test('without a model, keywords decide: a hit is an enquiry, no hit is ordinary interaction', async () => {
+  const hit = await classifyMessage({ message: comment('多少钱一个月'), keywords: KEYWORDS, llm: { configured: false } });
+  assert.deepEqual([hit.intent, hit.source], ['inquiry', 'keyword']);
+  assert.match(hit.reason, /出现关键词：多少钱（还没有配置大模型，只按关键词判断）/);
+  const miss = classifyByKeywords(comment('拍得不错'), KEYWORDS, '大模型暂时不可用');
+  assert.deepEqual([miss.intent, miss.source], ['chat', 'keyword']);
 });
 
 test('replies are only sent after a person confirms, and never mention the floor price', () => {

@@ -92,24 +92,60 @@ def account_is_logged_in(conn: psycopg.Connection, account: dict) -> bool:
     return valid
 
 
+def login(conn: psycopg.Connection, account: dict) -> tuple[bool, str]:
+    """弹出浏览器让人扫码。返回是否成功和一句说明。"""
+    if account["platform"] not in SAU_PLATFORM:
+        return False, f"{PLATFORM_LABEL[account['platform']]}还没有接入"
+    print(f"即将弹出浏览器窗口，请用{PLATFORM_LABEL[account['platform']]} App 扫码登录“{account['account_name']}”。")
+    try:
+        result = sau(SAU_PLATFORM[account["platform"]], "login", "--account", str(account["id"]), "--headed", timeout=600, capture=False)
+    except subprocess.TimeoutExpired:
+        return False, "10 分钟内没有扫码"
+    if result.returncode != 0 or not account_is_logged_in(conn, account):
+        return False, "登录没有成功，请重新发起"
+    conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'ok', last_login_at = now(), updated_at = now() WHERE id = %s", (account["id"],))
+    return True, "登录成功"
+
+
 def command_login(account_name: str) -> int:
     with connect() as conn:
         account = conn.execute(
             "SELECT id, platform, account_name, login_status FROM leadgen.publish_accounts WHERE account_name = %s", (account_name,)).fetchone()
         if not account:
-            print(f"没有找到发布账号“{account_name}”，请先在“内容发布”页添加。")
+            print(f"没有找到发布账号“{account_name}”，请先在“发布账号”页添加。")
             return 1
-        if account["platform"] not in SAU_PLATFORM:
-            print(f"{PLATFORM_LABEL[account['platform']]}还没有接入。")
-            return 1
-        print(f"即将弹出浏览器窗口，请用{PLATFORM_LABEL[account['platform']]} App 扫码登录“{account_name}”。")
-        result = sau(SAU_PLATFORM[account["platform"]], "login", "--account", str(account["id"]), "--headed", timeout=600, capture=False)
-        if result.returncode != 0 or not account_is_logged_in(conn, account):
-            print("登录没有成功，可以重新运行这条命令再试。")
-            return 1
-        conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'ok', last_login_at = now(), updated_at = now() WHERE id = %s", (account["id"],))
-        print("登录成功。")
-        return 0
+        ok, message = login(conn, account)
+        print(message)
+        return 0 if ok else 1
+
+
+def process_login_requests(conn: psycopg.Connection) -> None:
+    """处理页面上发起的扫码登录。超过 15 分钟没被处理的请求作废，免得很久以后突然弹窗。"""
+    conn.execute(
+        "UPDATE leadgen.publish_login_requests SET status = 'failed', message = '发布程序当时没有在运行', finished_at = now() "
+        "WHERE status = 'queued' AND created_at < now() - interval '15 minutes'")
+    while True:
+        request = conn.execute(
+            """
+            SELECT r.id AS request_id, a.id, a.platform, a.account_name, a.login_status
+            FROM leadgen.publish_login_requests r JOIN leadgen.publish_accounts a ON a.id = r.account_id
+            WHERE r.status = 'queued' ORDER BY r.created_at LIMIT 1
+            """).fetchone()
+        if not request:
+            return
+        conn.execute("UPDATE leadgen.publish_login_requests SET status = 'opened' WHERE id = %s", (request["request_id"],))
+        try:
+            ok, message = login(conn, request)
+        except Exception as error:
+            ok, message = False, f"发布程序出错：{error}"
+        conn.execute(
+            "UPDATE leadgen.publish_login_requests SET status = %s, message = %s, finished_at = now() WHERE id = %s",
+            ("succeeded" if ok else "failed", message, request["request_id"]))
+        print(f"{request['account_name']}：{message}")
+
+
+def heartbeat(conn: psycopg.Connection) -> None:
+    conn.execute("UPDATE leadgen.publisher_heartbeat SET last_seen_at = now(), host_name = %s WHERE id = 1", (os.environ.get("COMPUTERNAME", ""),))
 
 
 def command_check() -> int:
@@ -225,6 +261,8 @@ def main(argv: list[str]) -> int:
                 return 0
             print("发布程序已启动，按 Ctrl+C 停止。")
             while True:
+                heartbeat(conn)
+                process_login_requests(conn)
                 process_due(conn)
                 time.sleep(POLL_SECONDS)
     print(__doc__)

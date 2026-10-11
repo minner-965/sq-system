@@ -43,19 +43,15 @@
 
       <div id="list-view">
         <div class="card">
-          <div class="toolbar"><div class="tabs"><button type="button" aria-selected="true">全部素材</button></div>
-            <label class="toggle"><input type="checkbox" id="mine">只看我上传的</label></div>
+          <div class="toolbar"><div class="tabs" role="tablist" id="view-tabs">
+              <button type="button" role="tab" data-view="list" aria-selected="true">素材列表</button>
+              <button type="button" role="tab" data-view="calendar" aria-selected="false">排期日历</button></div>
+            <label class="toggle" id="mine-toggle"><input type="checkbox" id="mine">只看我上传的</label>
+            <div class="cal-nav" id="cal-nav" hidden><button class="btn sm" type="button" data-month="-1" aria-label="上个月">‹</button><b id="cal-title"></b><button class="btn sm" type="button" data-month="1" aria-label="下个月">›</button><button class="btn sm" type="button" data-month="0">回到本月</button></div></div>
           <div id="list"><div class="state">正在加载</div></div>
+          <div id="calendar" hidden></div>
         </div>
-        <details class="card settings" id="accounts" style="margin-top:16px">
-          <summary>发布账号</summary>
-          <div id="account-list"></div>
-          <form class="pb form-grid" id="account-form" hidden>
-            <div class="field"><label for="account-platform">平台</label><select id="account-platform" name="platform"></select></div>
-            <div class="field"><label for="account-name">账号名称</label><input id="account-name" name="account_name" maxlength="40" required></div>
-            <div class="wide form-actions"><span class="form-error" id="account-error" role="alert"></span><button class="btn pri" type="submit">添加账号</button></div>
-          </form>
-        </details>
+        <p class="foot-note">发布账号的登录和暂停在 <a class="lk" href="/accounts.html">发布账号</a> 页。</p>
       </div>
 
       <div id="detail-view" hidden>
