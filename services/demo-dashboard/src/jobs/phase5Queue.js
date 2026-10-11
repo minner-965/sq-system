@@ -9,17 +9,19 @@ export const PHASE5_QUEUES = Object.freeze({
   SCORE_COMPANY: 'score-company',
   SCORE_ALL_ELIGIBLE: 'score-all-eligible',
   REPLAY_RULE_VERSION: 'replay-rule-version',
-  EXPORT_BUSINESS_DATA: 'export-business-data'
+  EXPORT_BUSINESS_DATA: 'export-business-data',
+  DISCOVER_COMPANIES: 'discover-companies'
 });
 
 export const PHASE5_QUEUE_NAMES = Object.freeze(Object.values(PHASE5_QUEUES));
 
 function queuePolicy(name) {
   return Object.freeze({
-    retryLimit: 3,
+    // A discovery run spends external API quota, so a failed one is not repeated automatically.
+    retryLimit: name === PHASE5_QUEUES.DISCOVER_COMPANIES ? 0 : 3,
     retryDelay: 5,
     retryBackoff: true,
-    expireInSeconds: name === PHASE5_QUEUES.EXPORT_BUSINESS_DATA ? 900 : 300,
+    expireInSeconds: name === PHASE5_QUEUES.DISCOVER_COMPANIES || name === PHASE5_QUEUES.EXPORT_BUSINESS_DATA ? 900 : 300,
     heartbeatSeconds: 60,
     deleteAfterSeconds: 86400,
     retentionSeconds: 604800,
@@ -166,6 +168,12 @@ export function createPhase5Queue({
       };
       if (options.startAfter) sendOptions.startAfter = options.startAfter;
       return boss.send(name, data, sendOptions);
+    },
+    /** Recurring job; calling it again with the same queue replaces the schedule. */
+    async schedule(name, cron, data = {}) {
+      if (!PHASE5_QUEUE_NAMES.includes(name)) throw new Error(`Unsupported Phase 5 queue: ${name}`);
+      if (!enabled || !started) throw new Error('Phase 5 queue is not started');
+      return boss.schedule(name, cron, data, { tz: env.TZ || 'Asia/Shanghai' });
     },
     async enqueueFlow(steps) {
       if (!enabled || !started) throw new Error('Phase 5 queue is not started');

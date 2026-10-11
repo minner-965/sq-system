@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>企业发现 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>企业发现</h1>
+          <p id="run-line">&nbsp;</p>
+        </div>
+        <div class="btns">
+          <button class="btn pri" type="button" id="run" data-requires="write">立即检索</button>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+
+      <details class="card settings" id="settings" hidden>
+        <summary>检索设置</summary>
+        <form class="pb form-grid" id="settings-form">
+          <div class="field"><label for="radius">检索半径（公里）</label><input id="radius" name="radius" type="number" min="1" max="10" step="1" required></div>
+          <div class="field"><label for="max-calls">每次最多调用地图接口（次）</label><input id="max-calls" name="max_calls" type="number" min="1" max="100" step="1" required></div>
+          <fieldset class="field wide">
+            <legend>企业类别</legend>
+            <label class="check"><input type="checkbox" name="category" value="170100">知名企业</label>
+            <label class="check"><input type="checkbox" name="category" value="170200">公司</label>
+            <label class="check"><input type="checkbox" name="category" value="170300">工厂</label>
+          </fieldset>
+          <div class="field wide"><label for="keywords">行业关键词（用顿号或逗号分开，可不填）</label><input id="keywords" name="keywords" placeholder="例如：直播电商、生物医药"></div>
+          <div class="field wide"><label for="excludes">地址带这些字样的不收录（项目内现有商户）</label><input id="excludes" name="excludes"></div>
+          <label class="check wide"><input type="checkbox" name="daily">每天早上 7:30 自动检索一次</label>
+          <div class="wide form-actions"><span class="form-error" id="settings-error" role="alert"></span><button class="btn pri" type="submit">保存设置</button></div>
+        </form>
+      </details>
+
+      <div class="card">
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="复核状态">
+            <button type="button" role="tab" data-status="pending" aria-selected="true">待复核<span id="count-pending"></span></button>
+            <button type="button" role="tab" data-status="approved" aria-selected="false">已通过<span id="count-approved"></span></button>
+            <button type="button" role="tab" data-status="rejected" aria-selected="false">不合适<span id="count-rejected"></span></button>
+          </div>
+          <label class="search inline">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input type="search" id="q" placeholder="按企业名称或地址筛选" aria-label="筛选">
+          </label>
+        </div>
+        <div id="list"><div class="state">正在加载</div></div>
+        <div class="more" id="more" hidden><button class="btn" type="button" id="load-more">再看 50 家</button></div>
+      </div>
+
+      <p class="foot-note" id="usage">&nbsp;</p>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/discovery.js"></script>
+</body>
+</html>

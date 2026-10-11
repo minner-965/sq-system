@@ -32,10 +32,21 @@ WP01 移除：`nodemailer`、`imapflow`（随发信收信功能删除）。
 
 | 方向 | 工作包 | 候选 | 状态 |
 |---|---|---|---|
-| 企业发现 | WP04 | 高德、百度开放接口的官方或社区 SDK | 未评估 |
 | 客户跟进 | WP05 | 开源 CRM 的数据结构和界面做法 | 未评估 |
 | 平台发布 | WP06 | social-auto-upload（计划注明 MIT，引入前核对） | 未评估 |
 | 朋友圈发布 | WP08 | uiautomator2 | 未评估 |
+
+## WP04 的选型记录（2026-10-11）
+
+没有引入新依赖。
+
+| 方向 | 查到的 | 结论 |
+|---|---|---|
+| 高德地图接口的 Node SDK | 高德官方在 npm 上只有浏览器端的加载器（`@amap/amap-jsapi-loader`），服务端用的是 HTTP 的 Web 服务接口，没有官方 Node SDK；社区封装 `amap-sdk` 停在 1.0.1，2022 年后没有更新（npm，2026-10-11 查） | 直接调官方 Web 服务接口（`/v3/place/around`），用 Node 自带的 `fetch`，封装在 `src/discovery/providers/amap.js`，约 60 行 |
+| 评分 | 仓库里已有 `@gorules/zen-engine` 和旧的评分框架 | 这一版规则只有四项加法，用代码写更直白（`src/discovery/scoring.js`）；旧评分框架的表结构绑定海外版的事实快照，没有沿用。规则变复杂、需要业务人员自己调时再迁到 zen-engine |
+| 定时任务 | 已有的 pg-boss | 直接用它的定时功能，每天 7:30 一次 |
+| 用量记录 | 已有的 `provider_usage_events` 表 | 该表必须关联旧的研究任务，用不了；新建了简单的 `api_usage_events` |
+| 百度搜索、博查、工商数据、大模型 | 计划里列为预留 | 没有 Key，没有实现，只在 `providers/index.js` 里列了名字 |
 
 ## WP03 的选型记录（2026-10-10）
 
