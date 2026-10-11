@@ -42,7 +42,9 @@ export function extractContact(text) {
   const compact = String(text || '').replace(/(?<=\d)[\s-](?=\d)/g, '');
   const phone = compact.match(/(?<!\d)1[3-9]\d{9}(?!\d)/)?.[0] ?? null;
   const wechat = String(text || '').match(/(?:微信|vx|wx|v信|薇信|威信)\s*(?:号|同号)?\s*[:：是]?\s*([a-zA-Z][-_a-zA-Z0-9]{5,19})/i)?.[1] ?? null;
-  return { phone, wechat };
+  const qq = String(text || '').match(/(?:qq|扣扣|企鹅)\s*(?:号)?\s*[:：是]?\s*([1-9]\d{4,10})(?!\d)/i)?.[1] ?? null;
+  const email = String(text || '').match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?.[0] ?? null;
+  return { phone, wechat, qq, email };
 }
 
 export function classifyByKeywords(message, keywords, note) {
@@ -115,9 +117,9 @@ export async function classifyPending(pool, { llm, env = process.env, limit = 30
       if (earlier) result = { ...result, intent: earlier.intent, reason: `这个人之前${INTENTS[earlier.intent].label}，这是后续` };
     }
     const contact = extractContact(message.content);
-    if ((contact.phone || contact.wechat) && ['chat'].includes(result.intent)) {
+    if ((contact.phone || contact.wechat || contact.qq || contact.email) && ['chat'].includes(result.intent)) {
       // 主动留了电话或微信的，不管话怎么说，都按意向处理。
-      result = { ...result, intent: 'inquiry', reason: `对方留了${contact.phone ? '电话' : '微信'}` };
+      result = { ...result, intent: 'inquiry', reason: `对方留了${contact.phone ? '电话' : contact.wechat ? '微信' : contact.qq ? 'QQ' : '邮箱'}` };
     }
     const isLead = INTENTS[result.intent].lead;
     const assignee = isLead ? await assigneeFor(pool, message.publish_task_id) : null;
@@ -445,6 +447,8 @@ export function convertToLead(pool, { messageId, user }) {
       `判断：${INTENTS[message.intent]?.label || '未分类'}`,
       contact.phone ? `对方留的电话：${contact.phone}` : null,
       contact.wechat ? `对方留的微信：${contact.wechat}` : null,
+      contact.qq ? `对方留的 QQ：${contact.qq}` : null,
+      contact.email ? `对方留的邮箱：${contact.email}` : null,
       message.reply_text && ['sent', 'manual', 'queued'].includes(message.reply_status) ? `${message.reply_status === 'queued' ? '待发回复' : '已回复'}：${message.reply_text}` : null
     ].filter(Boolean).join('\n');
     await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, occurred_at, created_by) VALUES ($1, 'note', $2, $3, $4)`,
