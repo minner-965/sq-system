@@ -136,7 +136,7 @@ function taskCard(task) {
     <div class="pb">
       ${task.status === 'confirmed' ? `<div class="notice">将在 ${dateTime(task.scheduled_at)} 用“${escapeHtml(task.account_name || '')}”发布，${escapeHtml(task.confirmed_by_name || '')}确认</div>` : ''}
       ${task.status === 'published' ? `<div class="notice">已于 ${dateTime(task.published_at)} 发布${task.post_url ? `，<a class="lk" href="${escapeHtml(task.post_url)}" target="_blank" rel="noopener noreferrer">查看帖子</a>` : ''}</div>` : ''}
-      ${task.status === 'failed' ? `<div class="warn-box" role="alert">发布失败：${escapeHtml(task.error_message || '原因未知')}。处理后重新确认即可，系统不会自动重发。</div>` : ''}
+      ${task.status === 'failed' ? `<div class="warn-box" role="alert">发布失败：${escapeHtml(task.error_message || '原因未知')}。处理后重新确认即可，系统不会自动重发。${task.error_screenshot_url ? ` <a class="lk" href="${escapeHtml(task.error_screenshot_url)}" target="_blank" rel="noopener">看失败时的截图</a>` : ''}</div>` : ''}
       ${task.problems.length ? `<div class="warn-box">${task.problems.map(escapeHtml).join('；')}</div>` : ''}
       <form class="draft-form">
         ${limits.titleMax ? `<div class="field"><label>标题 <small data-count="title"></small></label><input name="title" value="${escapeHtml(task.title || '')}" data-max="${limits.titleMax}"${lock}></div>` : ''}

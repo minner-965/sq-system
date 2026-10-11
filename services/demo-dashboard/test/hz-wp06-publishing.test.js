@@ -26,8 +26,8 @@ test('drafts are held to each platform\'s length and topic limits', () => {
   const ok = normalizeDraft('douyin', { title: '黄埔精装写字楼出租', body: '193 平，南向采光。', topics: ['#广州写字楼#', '黄埔', '恒兆广场', '黄埔'] }, [35]);
   assert.deepEqual(ok, { title: '黄埔精装写字楼出租', body: '193 平，南向采光。', topics: ['广州写字楼', '黄埔', '恒兆广场'], problems: [] });
 
-  const long = normalizeDraft('douyin', { title: '标'.repeat(31), body: '文'.repeat(201), topics: ['a'] });
-  assert.deepEqual(long.problems, ['标题 31 字，超过 30 字', '正文 201 字，超过 200 字', '话题 1 个，不到 3 个']);
+  const long = normalizeDraft('douyin', { title: '标'.repeat(21), body: '文'.repeat(201), topics: ['a'] });
+  assert.deepEqual(long.problems, ['标题 21 字，超过 20 字', '正文 201 字，超过 200 字', '话题 1 个，不到 3 个']);
   assert.deepEqual(normalizeDraft('xiaohongshu', { title: '好办公室', body: '太短', topics: ['a', 'b', 'c'] }).problems, ['正文 2 字，不到 300 字']);
 
   const moments = normalizeDraft('moments', { title: '不该有的标题', body: '恒兆广场写字楼招租，欢迎私信。', topics: ['话题'] });
