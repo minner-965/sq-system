@@ -59,8 +59,8 @@ export function createPublishingRouter({ pool, auth, llm, mediaDir }) {
   router.get('/tasks/:taskId/versions', ...read, handle(async (req, res) => res.json(await listVersions(pool, req.params.taskId))));
 
   router.get('/accounts', ...read, handle(async (_req, res) => res.json(await listAccounts(pool))));
-  router.post('/accounts', ...admin, handle(async (req, res) => res.status(201).json(await addAccount(pool, req.body || {}))));
-  router.post('/accounts/:accountId/login', ...admin, handle(async (req, res) => {
+  router.post('/accounts', ...write, handle(async (req, res) => res.status(201).json(await addAccount(pool, req.body || {}))));
+  router.post('/accounts/:accountId/login', ...write, handle(async (req, res) => {
     res.status(202).json(await requestLogin(pool, { accountId: req.params.accountId, user: req.managementUser }));
   }));
   router.get('/calendar', ...read, handle(async (req, res) => res.json(await calendarTasks(pool, req.query.month))));

@@ -133,7 +133,9 @@ test('nothing is queued for publishing without an explicit confirmation by an ac
   for (const route of ["post('/materials'", "post('/materials/:materialId/drafts'", "put('/tasks/:taskId'", "post('/tasks/:taskId/confirm'", "post('/tasks/:taskId/withdraw'"]) {
     assert.ok(routes.includes(`router.${route}, ...write`), route);
   }
-  assert.match(routes, /router\.post\('\/accounts', \.\.\.admin/);
+  // Adding an account and scanning in are open to accounts that can edit; pausing, limits and renaming stay with administrators.
+  assert.match(routes, /router\.post\('\/accounts', \.\.\.write/);
+  assert.match(routes, /router\.patch\('\/accounts\/:accountId', \.\.\.admin/);
   const service = readFileSync(path.join(appRoot, 'src', 'publishing', 'publishingService.js'), 'utf8');
   // The only place a task becomes 'confirmed' is confirmTask.
   assert.equal(service.match(/SET status = 'confirmed'/g).length, 1);
