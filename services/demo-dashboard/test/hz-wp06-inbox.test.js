@@ -76,9 +76,11 @@ test('replies are only sent after a person confirms, and never mention the floor
 
 test('a phone number or WeChat id the sender left is picked out of the message', async () => {
   const { extractContact } = await import('../src/inbox/inboxService.js');
-  assert.deepEqual(extractContact('1307还在吗 电话13812345678'), { phone: '13812345678', wechat: null });
+  assert.deepEqual(extractContact('1307还在吗 电话13812345678'), { phone: '13812345678', wechat: null, qq: null, email: null });
   assert.equal(extractContact('打我 138 1234 5678 或 138-1234-5678').phone, '13812345678');
   assert.equal(extractContact('订单号 2026101112345678901').phone, null);
   assert.equal(extractContact('加我微信：hz_office2026').wechat, 'hz_office2026');
-  assert.deepEqual(extractContact('多少钱一平'), { phone: null, wechat: null });
+  assert.equal(extractContact('qq 123456789').qq, '123456789');
+  assert.equal(extractContact('发我邮箱 zhang.san@example.com 谢谢').email, 'zhang.san@example.com');
+  assert.deepEqual(extractContact('多少钱一平'), { phone: null, wechat: null, qq: null, email: null });
 });

@@ -11,7 +11,7 @@ export const styleGuide = platform => STYLE_GUIDES[platform];
 export const PLATFORMS = Object.freeze({
   douyin: { label: '抖音', titleMax: 20, bodyMin: 0, bodyMax: 200, topics: [3, 5], style: '标题不超过 20 字（抖音图文的标题框只收 20 字），正文两三句话，简短有力' },
   channels: { label: '视频号', titleMax: 30, bodyMin: 0, bodyMax: 200, topics: [3, 5], style: '标题不超过 30 字，正文两三句话，简短有力' },
-  xiaohongshu: { label: '小红书', titleMax: 20, bodyMin: 300, bodyMax: 800, topics: [3, 8], style: '标题不超过 20 字，正文 300–800 字，分段，像真人分享的笔记' },
+  xiaohongshu: { label: '小红书', titleMax: 20, bodyMin: 200, bodyMax: 800, topics: [3, 8], style: '标题不超过 20 字，正文 200–800 字，分段，像真人分享的笔记' },
   moments: { label: '朋友圈', titleMax: 0, bodyMin: 0, bodyMax: 100, topics: [0, 0], style: '不要标题，不带话题，100 字以内，像业务员自己发的朋友圈' }
 });
 
