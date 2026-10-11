@@ -37,7 +37,9 @@ RUN_LOCK_KEY = 20261011
 MIN_GAP_MINUTES = 10
 UPLOAD_TIMEOUT_SECONDS = 15 * 60
 # 发布组件里各平台的名字。没列出的平台还没有接入。
-SAU_PLATFORM = {"douyin": "douyin"}
+SAU_PLATFORM = {"douyin": "douyin", "xiaohongshu": "xiaohongshu", "channels": "tencent"}
+# 只能发视频、不能发图文的平台。
+VIDEO_ONLY = {"channels"}
 PLATFORM_LABEL = {"douyin": "抖音", "channels": "视频号", "xiaohongshu": "小红书", "moments": "朋友圈"}
 
 
@@ -261,6 +263,9 @@ def publish(conn: psycopg.Connection, task: dict) -> None:
     if missing:
         fail(conn, task, f"素材文件找不到：{Path(missing[0]).name}")
         return
+    if not videos and task["platform"] in VIDEO_ONLY:
+        fail(conn, task, f"{PLATFORM_LABEL[task['platform']]}只能发视频，这条素材里没有视频")
+        return
     tags = ",".join(task["topics"] or [])
     title = task["title"] or task["topic"]
     if videos:
@@ -296,7 +301,7 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
     """读一遍这个账号：给刚发布的内容补上帖子链接；把我们发布的帖子下的新评论收进互动收件箱。
     只读我们自己通过系统发布的帖子，账号上原有的其他作品不碰。返回一句结果说明。"""
     if account["platform"] != "douyin":
-        return f"{PLATFORM_LABEL[account['platform']]}还没有接入读取"
+        return f"{PLATFORM_LABEL[account['platform']]}的评论和私信请在手机上查看"
     linked = conn.execute(
         "SELECT id, platform_post_id, title, post_url FROM leadgen.publish_tasks WHERE account_id = %s AND platform_post_id IS NOT NULL", (account["id"],)).fetchall()
     unlinked = conn.execute(

@@ -309,7 +309,7 @@ export async function listVersions(pool, taskId) {
 }
 
 // 发布程序已经接入的平台。其余平台可以先建账号，但还不能扫码和发布。
-export const CONNECTED_PLATFORMS = Object.freeze(['douyin']);
+export const CONNECTED_PLATFORMS = Object.freeze(['douyin', 'xiaohongshu', 'channels']);
 const PUBLISHER_ONLINE_SECONDS = 90;
 
 export async function listAccounts(pool) {
