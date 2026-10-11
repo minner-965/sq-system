@@ -37,6 +37,14 @@ const CLASSIFY_PROMPT = `你在帮广州恒兆广场（商铺写字楼招租、�
 只输出 JSON：{"intent":"inquiry","reason":"不超过30字，说明依据"}`;
 
 /** Verdict from keywords alone: used when the model is not configured or is down. */
+/** 对方主动留下的手机号和微信号。手机号允许中间有空格或横线（“138 1234 5678”）。 */
+export function extractContact(text) {
+  const compact = String(text || '').replace(/(?<=\d)[\s-](?=\d)/g, '');
+  const phone = compact.match(/(?<!\d)1[3-9]\d{9}(?!\d)/)?.[0] ?? null;
+  const wechat = String(text || '').match(/(?:微信|vx|wx|v信|薇信|威信)\s*(?:号|同号)?\s*[:：是]?\s*([a-zA-Z][-_a-zA-Z0-9]{5,19})/i)?.[1] ?? null;
+  return { phone, wechat };
+}
+
 export function classifyByKeywords(message, keywords, note) {
   const hits = matchedKeywords(message.content, keywords);
   return hits.length
@@ -105,6 +113,11 @@ export async function classifyPending(pool, { llm, env = process.env, limit = 30
         WHERE platform = $1 AND sender_platform_id = $2 AND id <> $3 AND intent IN ('inquiry', 'viewing', 'cooperation', 'booking')
         ORDER BY sent_at DESC LIMIT 1`, [message.platform, message.sender_platform_id, message.id]);
       if (earlier) result = { ...result, intent: earlier.intent, reason: `这个人之前${INTENTS[earlier.intent].label}，这是后续` };
+    }
+    const contact = extractContact(message.content);
+    if ((contact.phone || contact.wechat) && ['chat'].includes(result.intent)) {
+      // 主动留了电话或微信的，不管话怎么说，都按意向处理。
+      result = { ...result, intent: 'inquiry', reason: `对方留了${contact.phone ? '电话' : '微信'}` };
     }
     const isLead = INTENTS[result.intent].lead;
     const assignee = isLead ? await assigneeFor(pool, message.publish_task_id) : null;
@@ -397,6 +410,7 @@ export function convertToLead(pool, { messageId, user }) {
       SELECT m.content_type, m.property_id, m.topic FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id WHERE t.id = $1`, [message.publish_task_id]) : { rows: [] };
     const sectorKey = message.intent === 'booking' && !post ? 'hotel_apartment' : SECTOR_OF[post?.content_type || 'property'];
     if (!user.sectors.includes(sectorKey)) throw fail(403, 'SECTOR_FORBIDDEN', '这条线索属于别的板块，请让负责该板块的同事来转');
+    const contact = extractContact(message.content);
     const senderKey = message.sender_platform_id || `name:${message.sender_name}`;
     const { rows: [existing] } = await client.query('SELECT id FROM leadgen.companies WHERE source = $1 AND source_ref = $2', [message.platform, senderKey]);
     const companyId = existing?.id ?? (await client.query(`
@@ -404,17 +418,20 @@ export function convertToLead(pool, { messageId, user }) {
       VALUES ($1, $2, $3, $4, 'social_lead', 'qualified', $5) RETURNING id`,
     [`${PLATFORM_NAME[message.platform]}用户 ${message.sender_name}`, message.platform, senderKey, message.sender_profile_url, '来自社交平台的评论或私信'])).rows[0].id;
     const { rows: [track] } = await client.query(`
-      INSERT INTO leadgen.company_sector_tracks (company_id, sector_key, stage, owner_user_id, intended_property_id, contact_name)
-      VALUES ($1, $2, 'new', $3, $4, $5)
-      ON CONFLICT (company_id, sector_key) DO UPDATE SET updated_at = now()
+      INSERT INTO leadgen.company_sector_tracks (company_id, sector_key, stage, owner_user_id, intended_property_id, contact_name, contact_phone)
+      VALUES ($1, $2, 'new', $3, $4, $5, $6)
+      ON CONFLICT (company_id, sector_key) DO UPDATE SET updated_at = now(),
+        contact_phone = COALESCE(leadgen.company_sector_tracks.contact_phone, EXCLUDED.contact_phone)
       RETURNING id, (xmax = 0) AS inserted`,
-    [companyId, sectorKey, message.assignee_user_id || user.id, sectorKey === 'office_retail' ? post?.property_id ?? null : null, message.sender_name]);
+    [companyId, sectorKey, message.assignee_user_id || user.id, sectorKey === 'office_retail' ? post?.property_id ?? null : null, message.sender_name, contact.phone]);
     const source = [
       `来源：${PLATFORM_NAME[message.platform]}${KIND_NAME[message.kind]}`,
       message.post_title ? `帖子：《${message.post_title}》${message.post_url ? ` ${message.post_url}` : ''}` : null,
       `对方：${message.sender_name}${message.sender_profile_url ? ` ${message.sender_profile_url}` : ''}`,
       `原话：${message.content}`,
       `判断：${INTENTS[message.intent]?.label || '未分类'}`,
+      contact.phone ? `对方留的电话：${contact.phone}` : null,
+      contact.wechat ? `对方留的微信：${contact.wechat}` : null,
       message.reply_text && ['sent', 'manual', 'queued'].includes(message.reply_status) ? `${message.reply_status === 'queued' ? '待发回复' : '已回复'}：${message.reply_text}` : null
     ].filter(Boolean).join('\n');
     await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, occurred_at, created_by) VALUES ($1, 'note', $2, $3, $4)`,
