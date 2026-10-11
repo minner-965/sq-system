@@ -88,8 +88,11 @@ def run_upload(conn: psycopg.Connection, task: dict, args: list[str], screenshot
         while process.poll() is None:
             if not notified and flag.exists():
                 notified = True
-                print(f"抖音要求短信验证：请在弹出的浏览器窗口里输入手机收到的验证码，然后点“验证”。（{task['account_name']}）")
-                notify(conn, "抖音要求短信验证", f"正在发布“{task['topic']}”。请在这台电脑弹出的浏览器窗口里输入手机收到的验证码，10 分钟内有效。",
+                # 标记里写着“获取验证码”有没有自动点上；没点上要告诉人先点。
+                requested = flag.read_text(encoding="utf-8", errors="replace").strip() != "manual"
+                step = "验证码已经自动发到手机，请在弹出的浏览器窗口里输入，然后点“验证”" if requested else "请在弹出的浏览器窗口里先点“获取验证码”，再输入手机收到的验证码，然后点“验证”"
+                print(f"抖音要求短信验证：{step}。（{task['account_name']}）")
+                notify(conn, "抖音要求短信验证", f"正在发布“{task['topic']}”。{step}，10 分钟内有效。",
                        f"/publishing.html?id={task['material_id']}", task["confirmed_by"])
             if time.monotonic() - started > UPLOAD_TIMEOUT_SECONDS:
                 process.kill()

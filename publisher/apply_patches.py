@@ -18,35 +18,70 @@ PATCHES = [
     (
         "uploader/douyin_uploader/main.py",
         """class DouYinBaseUploader(BaseVideoUploader):""",
-        '''async def _hz_publish_stuck(page, limit: int = 20):
-    """恒兆补丁：点了“发布”页面却不跳转时，别无限重试。到次数后截图、记下页面上的提示，然后报错退出。"""
-    # 抖音有时在点发布后要求短信验证本人。验证码只能由人在弹出的浏览器窗口里输入：
-    # 这里替人点一下“获取验证码”，留一个标记让发布程序去提醒，然后最多等 10 分钟。
+        '''async def _hz_request_sms_code(page) -> bool:
+    """恒兆补丁：替人点“获取验证码”。点完按钮上的字会变成倒计时，以此判断点没点上；三种点法轮着试。"""
+    get_code = page.get_by_text("获取验证码", exact=True).first
+
+    async def still_there() -> bool:
+        try:
+            return bool(await get_code.count()) and await get_code.is_visible()
+        except Exception:
+            return False
+
+    if not await still_there():
+        return True
+    for attempt in ("mouse", "click", "script"):
+        try:
+            if attempt == "mouse":
+                await _native_click(page, get_code)
+            elif attempt == "click":
+                await get_code.click(timeout=3000, force=True)
+            else:
+                await get_code.evaluate("element => element.click()")
+        except Exception:
+            pass
+        await asyncio.sleep(1.5)
+        if not await still_there():
+            douyin_logger.info(_msg("📤", f"已自动点了“获取验证码”（{attempt}）"))
+            return True
+    douyin_logger.warning(_msg("⚠️", "没能自动点上“获取验证码”，请在窗口里手动点一下"))
+    return False
+
+
+async def _hz_wait_for_sms(page) -> None:
+    """恒兆补丁：抖音有时在点发布后要求短信验证本人。验证码只能由人在弹出的浏览器窗口里输入：
+    一看到验证框就替人点“获取验证码”，留一个标记让发布程序去提醒，然后最多等 10 分钟。没有验证框时立刻返回。"""
     sms_input = page.locator('input[placeholder*="验证码"]').first
     try:
         sms_visible = bool(await sms_input.count()) and await sms_input.is_visible()
     except Exception:
         sms_visible = False
-    if sms_visible:
-        if not getattr(page, "_hz_sms_seen", False):
-            page._hz_sms_seen = True
-            flag = os.environ.get("HZ_SMS_FLAG")
-            if flag:
-                Path(flag).write_text("waiting", encoding="utf-8")
-            get_code = page.get_by_text("获取验证码").first
-            if await get_code.count() and await get_code.is_visible():
-                await _native_click(page, get_code)
-            douyin_logger.warning(_msg("📱", "抖音要求短信验证，请在弹出的浏览器窗口里输入验证码并点“验证”"))
-        for _ in range(300):
-            await asyncio.sleep(2)
-            if "content/manage" in page.url:
+    if not sms_visible:
+        return
+    if not getattr(page, "_hz_sms_seen", False):
+        page._hz_sms_seen = True
+        requested = await _hz_request_sms_code(page)
+        flag = os.environ.get("HZ_SMS_FLAG")
+        if flag:
+            Path(flag).write_text("requested" if requested else "manual", encoding="utf-8")
+        douyin_logger.warning(_msg("📱", "抖音要求短信验证，请在弹出的浏览器窗口里输入验证码并点“验证”"))
+    for _ in range(300):
+        await asyncio.sleep(2)
+        if "content/manage" in page.url:
+            return
+        try:
+            if not (await sms_input.count() and await sms_input.is_visible()):
                 return
-            try:
-                if not (await sms_input.count() and await sms_input.is_visible()):
-                    return
-            except Exception:
-                return
-        raise RuntimeError("抖音要求短信验证，10 分钟内没有在弹出的浏览器窗口里输入验证码")
+        except Exception:
+            return
+    raise RuntimeError("抖音要求短信验证，10 分钟内没有在弹出的浏览器窗口里输入验证码")
+
+
+async def _hz_publish_stuck(page, limit: int = 20):
+    """恒兆补丁：点了“发布”页面却不跳转时，别无限重试。到次数后截图、记下页面上的提示，然后报错退出。"""
+    if getattr(page, "_hz_sms_seen", False) and "content/manage" in page.url:
+        return
+    await _hz_wait_for_sms(page)
     count = getattr(page, "_hz_publish_attempts", 0) + 1
     page._hz_publish_attempts = count
     if count < limit:
@@ -78,6 +113,23 @@ class DouYinBaseUploader(BaseVideoUploader):''',
                 await _hz_publish_stuck(page)
                 await asyncio.sleep(0.5)""",
         "2026-10-11：图文发布的重试循环接上面的次数上限。",
+    ),
+    (
+        "uploader/douyin_uploader/main.py",
+        """                publish_button = page.get_by_role("button", name="发布", exact=True)
+                if await publish_button.count():
+                    await publish_button.click()
+                await page.wait_for_url(
+                    "**/creator-micro/content/manage?enter_from=publish**",""",
+        """                await _hz_wait_for_sms(page)
+                if "content/manage" not in page.url:
+                    publish_button = page.get_by_role("button", name="发布", exact=True)
+                    if await publish_button.count():
+                        await publish_button.click(timeout=5000)
+                await page.wait_for_url(
+                    "**/creator-micro/content/manage**",""",
+        "2026-10-11：验证框一出现就处理（原来要等发布按钮点击超时 30 秒后才轮到，Simon 已经自己点了“获取验证码”）；"
+        "验证通过后不再重复点发布；发布按钮被挡住时 5 秒就放弃这一次点击。",
     ),
 ]
 
