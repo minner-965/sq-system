@@ -24,6 +24,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from xiaohongshu_reader import read_xiaohongshu_notes
 from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply
 
 HERE = Path(__file__).parent.resolve()
@@ -31,7 +32,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v6"
+VERSION = "v7"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 METRICS_HOURS = 6
@@ -302,6 +303,8 @@ def clean_link(link: str) -> str:
 def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "scheduled") -> str:
     """读一遍这个账号：给刚发布的内容补上帖子链接；把我们发布的帖子下的新评论收进互动收件箱。
     只读我们自己通过系统发布的帖子，账号上原有的其他作品不碰。返回一句结果说明。"""
+    if account["platform"] == "xiaohongshu":
+        return sync_xiaohongshu(conn, account)
     if account["platform"] != "douyin":
         return f"{PLATFORM_LABEL[account['platform']]}的评论和私信请在手机上查看"
     linked = conn.execute(
@@ -362,6 +365,37 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
     except Exception as error:
         note += f"；私信没读到：{error}"[:120]
     return note
+
+
+def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
+    """小红书：给我们发布的笔记补上链接，更新浏览、点赞等数字。账号上原有的其他笔记不保存。
+    创作服务平台里看不到评论和私信的内容，只有评论数。"""
+    data = asyncio.run(read_xiaohongshu_notes(account["id"]))
+    if not data["logged_in"]:
+        conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
+        return "登录已过期，请重新扫码"
+    tasks = conn.execute(
+        "SELECT id, title, platform_post_id FROM leadgen.publish_tasks WHERE account_id = %s AND status = 'published' ORDER BY published_at DESC", (account["id"],)).fetchall()
+    taken = {task["platform_post_id"] for task in tasks if task["platform_post_id"]}
+    by_id = {item["item_id"]: item for item in data["items"]}
+    linked = updated = 0
+    for task in tasks:
+        item = by_id.get(task["platform_post_id"]) if task["platform_post_id"] else None
+        if not item and not task["platform_post_id"]:
+            # 按标题去对，已经对上的笔记不重复用。
+            item = next((note for note in data["items"] if note["item_id"] not in taken and task["title"] and note["title"].startswith(task["title"][:12])), None)
+            if item:
+                taken.add(item["item_id"])
+                linked += 1
+        if not item:
+            continue
+        updated += 1
+        conn.execute(
+            """UPDATE leadgen.publish_tasks SET platform_post_id = %s, post_url = COALESCE(post_url, %s), stat_views = %s, stat_likes = %s, stat_comments = %s,
+                 stat_favorites = %s, stat_shares = %s, metrics_at = now(), stats_at = now(), updated_at = now() WHERE id = %s""",
+            (item["item_id"], item["link"], item["views"], item["likes"], item["comments"], item["favorites"], item["shares"], task["id"]))
+    note = f"读了 {updated} 条我们发布的笔记的数据" + (f"，补上链接 {linked} 条" if linked else "")
+    return f"{note}；评论和私信请在手机上查看"
 
 
 def sync_stranger_messages(conn: psycopg.Connection, account: dict) -> str:
@@ -532,7 +566,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
