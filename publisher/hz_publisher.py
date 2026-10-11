@@ -331,14 +331,21 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
             continue
         conn.execute("UPDATE leadgen.publish_tasks SET stat_comments = %s, stats_at = now() WHERE id = %s", (item["comment_count"], task["id"]))
         for comment in data["comments"].get(item["item_id"], []):
+            if not comment["sender_id"]:
+                # 追评里没有和一级评论一致的用户编号：同一个账号下按昵称找这个人之前的评论，沿用那个编号，转线索时才会并到同一个客户。
+                known = conn.execute(
+                    "SELECT sender_platform_id FROM leadgen.interaction_messages WHERE account_id = %s AND sender_name = %s AND sender_platform_id NOT LIKE 'name:%%' ORDER BY created_at LIMIT 1",
+                    (account["id"], comment["sender_name"])).fetchone()
+                comment["sender_id"] = known["sender_platform_id"] if known else None
             inserted = conn.execute(
                 """INSERT INTO leadgen.interaction_messages
                      (platform, kind, platform_message_id, account_id, publish_task_id, post_title, post_url,
-                      sender_name, sender_platform_id, content, sent_at, source)
-                   VALUES ('douyin', 'comment', %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reader')
+                      sender_name, sender_platform_id, content, sent_at, source, thread_comment_text, thread_sender_name)
+                   VALUES ('douyin', 'comment', %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reader', %s, %s)
                    ON CONFLICT (platform, platform_message_id) DO NOTHING RETURNING id""",
                 (comment["comment_id"], account["id"], task["id"], task["title"], task["post_url"],
-                 comment["sender_name"], comment["sender_id"], comment["text"], comment["sent_at"])).fetchone()
+                 comment["sender_name"], comment["sender_id"] or f"name:{comment['sender_name']}", comment["text"], comment["sent_at"],
+                 comment.get("thread_comment_text"), comment.get("thread_sender_name"))).fetchone()
             new_messages += 1 if inserted else 0
     note = f"读了 {len(by_post)} 条我们发布的帖子，新评论 {new_messages} 条" + (f"，补上帖子链接 {newly_linked} 条" if newly_linked else "")
     if data.get("errors"):
@@ -413,10 +420,12 @@ def process_inbox_checks(conn: psycopg.Connection) -> None:
 
 
 def process_replies(conn: psycopg.Connection) -> None:
-    """把人工确认过的回复发到平台上。一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。"""
+    """把人工确认过的回复发到平台上。一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。
+    追评在评论管理页上不单独显示，回复落在它所在的那条一级评论下面（同一串对话里）。"""
     message = conn.execute(
         """
-        SELECT i.id, i.account_id, i.sender_name, i.content, i.reply_text, t.title AS post_title, a.account_name
+        SELECT i.id, i.account_id, i.reply_text, t.title AS post_title, a.account_name, i.sender_name AS who,
+               COALESCE(i.thread_sender_name, i.sender_name) AS sender_name, COALESCE(i.thread_comment_text, i.content) AS content
         FROM leadgen.interaction_messages i
         JOIN leadgen.publish_accounts a ON a.id = i.account_id
         JOIN leadgen.publish_tasks t ON t.id = i.publish_task_id
@@ -433,12 +442,12 @@ def process_replies(conn: psycopg.Connection) -> None:
         reason = f"发送时出错：{error}"[:200]
     else:
         conn.execute("UPDATE leadgen.interaction_messages SET reply_status = 'sent', replied_at = now(), reply_error = NULL, updated_at = now() WHERE id = %s", (message["id"],))
-        print(f"已回复 {message['sender_name']}（{message['account_name']}）")
+        print(f"已回复 {message['who']}（{message['account_name']}）")
         return
     conn.execute(
         "UPDATE leadgen.interaction_messages SET reply_status = 'failed', reply_error = %s, updated_at = now() WHERE id = %s",
         (reason if "点了发送" in reason else f"{reason}。请复制回复内容到手机上回复", message["id"]))
-    print(f"回复没有发出去：{message['sender_name']}，{reason}")
+    print(f"回复没有发出去：{message['who']}，{reason}")
 
 
 def process_due(conn: psycopg.Connection) -> int:
