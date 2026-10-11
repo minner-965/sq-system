@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CONTENT_TYPES, PLATFORMS } from './copywriter.js';
 import {
   MAX_IMAGES, MAX_VIDEOS, addAccount, calendarTasks, confirmTask, requestLogin, createMaterial, generateDrafts, getMaterial, listAccounts, listMaterials,
-  listVersions, updateAccount, updateDraft, withdrawTask
+  listVersions, markRemoved, updateAccount, updateDraft, withdrawTask
 } from './publishingService.js';
 
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
@@ -55,6 +55,7 @@ export function createPublishingRouter({ pool, auth, llm, mediaDir }) {
   router.post('/tasks/:taskId/confirm', ...write, handle(async (req, res) => {
     res.json(await confirmTask(pool, { taskId: req.params.taskId, user: req.managementUser, scheduledAt: req.body?.scheduled_at || null }));
   }));
+  router.post('/tasks/:taskId/removed', ...write, handle(async (req, res) => res.json(await markRemoved(pool, { taskId: req.params.taskId, note: req.body?.note }))));
   router.post('/tasks/:taskId/withdraw', ...write, handle(async (req, res) => res.json(await withdrawTask(pool, { taskId: req.params.taskId }))));
   router.get('/tasks/:taskId/versions', ...read, handle(async (req, res) => res.json(await listVersions(pool, req.params.taskId))));
 

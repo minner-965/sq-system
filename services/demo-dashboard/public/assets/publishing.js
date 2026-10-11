@@ -4,7 +4,7 @@ const byId = id => document.getElementById(id);
 const materialId = new URLSearchParams(location.search).get('id');
 const shell = await initShell({ page: 'publishing' });
 const canWrite = shell.user.can_write;
-const STATUS_CLASS = { draft: 'st-warn', confirmed: 'st-wait', publishing: 'st-wait', published: 'st-ok', failed: 'st-bad', withdrawn: 'st-wait' };
+const STATUS_CLASS = { draft: 'st-warn', confirmed: 'st-wait', publishing: 'st-wait', published: 'st-ok', failed: 'st-bad', withdrawn: 'st-wait', removed: 'st-wait' };
 
 const dateTime = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const toLocalInput = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -155,6 +155,8 @@ function taskCard(task) {
           <button class="btn pri" type="submit">确认</button></div>
       </form>` : ''}
       ${task.status === 'confirmed' && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-withdraw>撤回</button></div>' : ''}
+      ${task.status === 'removed' ? `<div class="notice">这条已于 ${dateTime(task.removed_at)} 标记为“已在平台删除”${task.removed_note ? `：${escapeHtml(task.removed_note)}` : ''}</div>` : ''}
+      ${task.status === 'published' && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-removed>已在平台上删除</button></div>' : ''}
       ${task.version_count > 1 ? `<details class="why versions"><summary>历史版本（${task.version_count}）</summary><div data-versions></div></details>` : ''}
     </div></section>`;
 }
@@ -216,6 +218,13 @@ function setupDetail() {
     const card = event.target.closest('[data-task]');
     if (!card) return;
     if (event.target.closest('[data-regenerate]')) { generate(event.target, card.dataset.platform); return; }
+    if (event.target.closest('[data-removed]')) {
+      const note = prompt('这条帖子已经在平台上删掉了吗？可以写一句原因（可不填）。系统只做记录，不会去平台上删。');
+      if (note === null) return;
+      try { await send(`/api/publishing/tasks/${card.dataset.task}/removed`, 'POST', { note }); await loadDetail(); notice('已记录：这条已在平台删除。'); }
+      catch (error) { notice(error.message); }
+      return;
+    }
     if (event.target.closest('[data-withdraw]')) {
       try { await send(`/api/publishing/tasks/${card.dataset.task}/withdraw`, 'POST'); await loadDetail(); notice('已撤回，不会发布。'); }
       catch (error) { notice(error.message); }

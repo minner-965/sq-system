@@ -10,7 +10,7 @@ export const MIN_GAP_MINUTES = 10;
 const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
 const VIDEO_TYPES = { 'video/mp4': '.mp4', 'video/quicktime': '.mov' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const TASK_STATUS_NAME = Object.freeze({ draft: '待确认', confirmed: '待发布', publishing: '发布中', published: '已发布', failed: '发布失败', withdrawn: '已撤回' });
+export const TASK_STATUS_NAME = Object.freeze({ draft: '待确认', confirmed: '待发布', publishing: '发布中', published: '已发布', failed: '发布失败', withdrawn: '已撤回', removed: '已在平台删除' });
 
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
 const requireUuid = (value, code) => { if (!UUID.test(String(value))) throw fail(404, code, '没有找到这条记录'); };
@@ -148,7 +148,7 @@ export async function getMaterial(pool, materialId) {
   const [{ rows: files }, { rows: tasks }] = await Promise.all([
     pool.query(`SELECT id, kind, '/media/' || file_path AS url, original_name, size_bytes FROM leadgen.material_files WHERE material_id = $1 ORDER BY sort_order`, [materialId]),
     pool.query(`
-      SELECT t.id, t.platform, t.status, t.title, t.body, t.topics, t.scheduled_at, t.confirmed_at, t.published_at, t.post_url, t.stat_views, t.stat_likes, t.stat_comments, t.stat_favorites, t.stat_shares, t.metrics_at,
+      SELECT t.id, t.platform, t.status, t.title, t.body, t.topics, t.scheduled_at, t.confirmed_at, t.published_at, t.post_url, t.stat_views, t.stat_likes, t.stat_comments, t.stat_favorites, t.stat_shares, t.metrics_at, t.removed_at, t.removed_note,
              t.error_message, CASE WHEN t.error_screenshot IS NOT NULL THEN '/media/' || t.error_screenshot END AS error_screenshot_url,
              t.body IS NOT NULL AS has_body, a.account_name, c.display_name AS confirmed_by_name,
              (SELECT count(*)::int FROM leadgen.publish_task_versions v WHERE v.task_id = t.id) AS version_count
@@ -295,7 +295,7 @@ export function confirmTask(pool, { taskId, user, scheduledAt }) {
     if (when.getTime() < Date.now() - 60_000) when = new Date();
     const { rows: busy } = await client.query(`
       SELECT COALESCE(published_at, scheduled_at) AS at FROM leadgen.publish_tasks
-      WHERE account_id = $1 AND id <> $2 AND status IN ('confirmed', 'publishing', 'published') ORDER BY 1`, [account.id, taskId]);
+      WHERE account_id = $1 AND id <> $2 AND status IN ('confirmed', 'publishing', 'published', 'removed') ORDER BY 1`, [account.id, taskId]);
     const gap = MIN_GAP_MINUTES * 60_000;
     let moved = false;
     for (const { at } of busy) {
@@ -303,7 +303,7 @@ export function confirmTask(pool, { taskId, user, scheduledAt }) {
     }
     const { rows: [day] } = await client.query(`
       SELECT count(*)::int AS n FROM leadgen.publish_tasks
-      WHERE account_id = $1 AND id <> $2 AND status IN ('confirmed', 'publishing', 'published')
+      WHERE account_id = $1 AND id <> $2 AND status IN ('confirmed', 'publishing', 'published', 'removed')
         AND date_trunc('day', COALESCE(published_at, scheduled_at)) = date_trunc('day', $3::timestamptz)`, [account.id, taskId, when.toISOString()]);
     if (day.n >= account.daily_limit) throw fail(409, 'DAILY_LIMIT_REACHED', `这个账号当天已经排了 ${day.n} 条，达到每日上限，请换一天`);
     await client.query(`
@@ -319,6 +319,17 @@ export function withdrawTask(pool, { taskId }) {
     if (task.status !== 'confirmed') throw fail(409, 'TASK_NOT_WITHDRAWABLE', task.status === 'publishing' ? '正在发布，来不及撤回了' : '只有待发布的内容可以撤回');
     await client.query(`UPDATE leadgen.publish_tasks SET status = 'withdrawn', scheduled_at = NULL, updated_at = now() WHERE id = $1`, [taskId]);
     return { status: 'withdrawn' };
+  });
+}
+
+/** Records that a published post was later deleted on the platform by a person. The system never deletes posts itself. */
+export function markRemoved(pool, { taskId, note }) {
+  return inTransaction(pool, async client => {
+    const { task } = await lockTask(client, taskId);
+    if (task.status !== 'published') throw fail(409, 'TASK_NOT_PUBLISHED', '只有已发布的内容可以标记为已删除');
+    await client.query(`UPDATE leadgen.publish_tasks SET status = 'removed', removed_at = now(), removed_note = $2, updated_at = now() WHERE id = $1`,
+      [taskId, String(note || '').trim().slice(0, 200) || null]);
+    return { status: 'removed' };
   });
 }
 
