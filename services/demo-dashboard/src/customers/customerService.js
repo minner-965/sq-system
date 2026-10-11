@@ -65,7 +65,7 @@ export async function getCompanyProfile(pool, { companyId, user }) {
       FROM leadgen.company_sector_candidates k JOIN leadgen.sectors s ON s.key = k.sector_key
       WHERE k.company_id = $1 ORDER BY s.sort_order`, [companyId]),
     pool.query(`
-      SELECT a.id, a.track_id, a.activity_type, a.content, a.occurred_at, u.display_name AS created_by_name, t.sector_key, s.name AS sector_name
+      SELECT a.id, a.track_id, a.activity_type, a.content, a.occurred_at, a.created_at, a.snapshot, u.display_name AS created_by_name, t.sector_key, s.name AS sector_name
       FROM leadgen.activities a
       JOIN leadgen.company_sector_tracks t ON t.id = a.track_id
       JOIN leadgen.sectors s ON s.key = t.sector_key
@@ -80,7 +80,8 @@ export async function getCompanyProfile(pool, { companyId, user }) {
       ? { ...present(track), restricted: false }
       : { id: track.id, sector_key: track.sector_key, sector_name: track.sector_name, stage: track.stage,
         stage_name: STAGE_NAME[track.stage], owner_name: track.owner_name, restricted: true })),
-    activities: activities.map(item => ({ ...item, activity_name: ACTIVITY_NAME[item.activity_type] }))
+    activities: activities.map(item => ({ ...item, activity_name: ACTIVITY_NAME[item.activity_type],
+      snapshot: item.snapshot ? { ...item.snapshot, stage_name: STAGE_NAME[item.snapshot.stage] } : null }))
   };
 }
 
