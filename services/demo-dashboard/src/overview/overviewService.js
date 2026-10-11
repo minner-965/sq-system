@@ -2,7 +2,7 @@
 // modules that are not open yet report null so the page can say so.
 
 export const TRACK_STAGES = Object.freeze(['new', 'contacted', 'viewing', 'negotiating', 'signed']);
-const STAGE_NAME = { new: '新线索', contacted: '已联系', viewing: '已看场', negotiating: '洽谈中', signed: '已签约', lost: '已流失' };
+const STAGE_NAME = { new: '待联系', contacted: '已联系', viewing: '已看场', negotiating: '洽谈中', signed: '已签约', lost: '已放弃' };
 const FOLLOW_UP_LIMIT = 6;
 
 /**
@@ -34,7 +34,8 @@ export async function getOverview(pool, { user, sector }) {
                WHERE a.activity_type = 'viewing' AND a.occurred_at >= date_trunc('month', now())
                  AND t.sector_key = ANY($1)) AS viewings_this_month,
              count(*) FILTER (WHERE next_follow_up_at < date_trunc('day', now()) + interval '1 day')::int AS due_today,
-             count(*) FILTER (WHERE next_follow_up_at < date_trunc('day', now()))::int AS overdue
+             count(*) FILTER (WHERE next_follow_up_at < date_trunc('day', now()))::int AS overdue,
+             count(*) FILTER (WHERE viewing_at >= now())::int AS viewings_scheduled
       FROM leadgen.company_sector_tracks
       WHERE sector_key = ANY($1) AND stage NOT IN ('signed', 'lost')`, [sectors]),
     pool.query(`
@@ -46,7 +47,7 @@ export async function getOverview(pool, { user, sector }) {
       LEFT JOIN leadgen.company_sector_tracks t ON t.sector_key = s.key AND t.stage NOT IN ('signed', 'lost')
       WHERE s.key = ANY($1) GROUP BY s.key, s.name, s.sort_order ORDER BY s.sort_order`, [sectors]),
     pool.query(`
-      SELECT t.id, c.company_name, s.name AS sector_name, t.stage, t.next_follow_up_at, u.display_name AS owner_name,
+      SELECT t.id, t.company_id, c.company_name, s.name AS sector_name, t.stage, t.next_follow_up_at, u.display_name AS owner_name,
              t.next_follow_up_at < date_trunc('day', now()) AS overdue
       FROM leadgen.company_sector_tracks t
       JOIN leadgen.companies c ON c.id = t.company_id
@@ -76,6 +77,7 @@ export async function getOverview(pool, { user, sector }) {
     } : null,
     companies: companies.rows[0],
     viewings_this_month: activity.rows[0].viewings_this_month,
+    viewings_scheduled: activity.rows[0].viewings_scheduled ?? 0,
     follow_ups: {
       due_today: activity.rows[0].due_today,
       overdue: activity.rows[0].overdue,

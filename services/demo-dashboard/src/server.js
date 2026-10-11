@@ -17,6 +17,7 @@ import { getOverview } from './overview/overviewService.js';
 import { createProviders } from './discovery/providers/index.js';
 import { createRun, getSettings, runDiscovery } from './discovery/discoveryService.js';
 import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
+import { createCustomerRouter } from './customers/customerRoutes.js';
 
 const { Pool } = pg;
 const app = express();
@@ -134,6 +135,7 @@ function mountWorkspace(auth) {
   });
 
   app.use('/api', createLeasingRouter({ pool, auth }));
+  app.use('/api', createCustomerRouter({ pool, auth }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })
