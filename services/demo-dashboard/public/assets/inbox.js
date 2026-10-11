@@ -34,11 +34,11 @@ function card(item) {
     <div class="msg-intent">${intentSelect}<span class="meta">${escapeHtml(item.intent_reason || '')}</span></div>
     ${item.reply_status !== 'none' ? `<div class="meta ${item.reply_status === 'failed' ? 'late' : ''}">${item.reply_auto ? '自动回复 · ' : ''}${REPLY_STATE[item.reply_status]}${item.reply_auto && item.reply_text && item.reply_status !== 'failed' ? `：${escapeHtml(item.reply_text)}` : ''}${item.reply_error ? `：${escapeHtml(item.reply_error)}` : ''}</div>` : ''}
     ${canWrite && item.status !== 'ignored' ? `<div class="reply">
-      <textarea data-reply rows="2" maxlength="300" placeholder="回复内容，确认后才会发出"${replyLocked ? ' disabled' : ''}>${escapeHtml(item.reply_text || '')}</textarea>
+      <textarea data-reply rows="2" maxlength="300" placeholder="${item.can_send ? '回复内容，确认后才会发出' : '回复内容，写好后点“复制”到手机上发'}"${replyLocked ? ' disabled' : ''}>${escapeHtml(item.reply_text || '')}</textarea>
       <div class="msg-actions">
         ${replyLocked ? '' : `${state.modelReady ? '<button class="btn sm" type="button" data-act="draft">生成回复</button>' : ''}
-        <button class="btn sm pri" type="button" data-act="send">确认发送</button>
-        <button class="btn sm" type="button" data-act="copy">复制</button>
+        <button class="btn sm pri" type="button" data-act="send"${item.can_send ? '' : ` disabled title="${item.kind === 'direct_message' ? '私信要在手机上回' : '这条要在手机上回'}"`}>确认发送</button>
+        <button class="btn sm${item.can_send ? '' : ' pri'}" type="button" data-act="copy">复制</button>
         <button class="btn sm" type="button" data-act="manual">已手动回复</button>`}
         ${item.reply_status === 'queued' ? '<button class="btn sm" type="button" data-act="copy">复制</button>' : ''}
         <span class="spacer"></span>

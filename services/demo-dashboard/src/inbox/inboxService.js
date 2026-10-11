@@ -238,12 +238,14 @@ export async function auditKeywordMisses(pool, { llm, env = process.env, limit =
 }
 
 const MESSAGE_COLUMNS = `i.id, i.platform, i.kind, i.post_title, i.post_url, i.publish_task_id, i.sender_name, i.sender_profile_url, i.content,
-  i.sent_at, i.source, i.intent, i.intent_reason, i.intent_source, i.status, i.assignee_user_id, a.display_name AS assignee_name,
+  i.sent_at, i.source, i.account_id, i.intent, i.intent_reason, i.intent_source, i.status, i.assignee_user_id, a.display_name AS assignee_name,
   i.company_id, i.reply_text, i.reply_status, i.reply_error, i.replied_at, i.reply_auto, t.material_id,
   i.intent = ANY($1) AND i.status = 'new' AND i.sent_at < now() - make_interval(hours => $2) AS overdue`;
 
 const decorate = row => ({
-  ...row, platform_name: PLATFORM_NAME[row.platform], kind_name: KIND_NAME[row.kind], intent_name: row.intent ? INTENTS[row.intent].label : '正在判断'
+  ...row, platform_name: PLATFORM_NAME[row.platform], kind_name: KIND_NAME[row.kind], intent_name: row.intent ? INTENTS[row.intent].label : '正在判断',
+  // 系统能不能替人把回复发出去：手工录入的、私信（对方收不到）都不能，只能复制到手机上发。
+  can_send: row.source !== 'manual' && Boolean(row.account_id) && (row.kind !== 'direct_message' || DM_SENDING_AVAILABLE)
 });
 
 /** Inbox columns hold messages that show intent; ordinary interaction is only counted, spam stays hidden. */
