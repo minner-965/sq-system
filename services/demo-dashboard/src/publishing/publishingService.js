@@ -343,6 +343,8 @@ export async function listVersions(pool, taskId) {
 }
 
 // 发布程序已经接入的平台。其余平台可以先建账号，但还不能扫码和发布。
+// 朋友圈发得多容易被限制，每天最多这么多条。
+export const MOMENTS_DAILY_MAX = 3;
 export const CONNECTED_PLATFORMS = Object.freeze(['douyin', 'xiaohongshu', 'channels']);
 const PUBLISHER_ONLINE_SECONDS = 90;
 
@@ -357,11 +359,16 @@ export async function listAccounts(pool) {
       FROM leadgen.publish_accounts a
       LEFT JOIN LATERAL (SELECT status, message, created_at FROM leadgen.publish_login_requests WHERE account_id = a.id ORDER BY created_at DESC LIMIT 1) r ON true
       ORDER BY array_position(ARRAY['douyin', 'channels', 'xiaohongshu', 'moments'], a.platform), a.created_at`),
-    pool.query(`SELECT last_seen_at, last_seen_at > now() - make_interval(secs => $1) AS online FROM leadgen.publisher_heartbeat WHERE id = 1`, [PUBLISHER_ONLINE_SECONDS])
+    pool.query(`SELECT last_seen_at, last_seen_at > now() - make_interval(secs => $1) AS online, phone, phone_checked_at > now() - interval '5 minutes' AS phone_fresh FROM leadgen.publisher_heartbeat WHERE id = 1`, [PUBLISHER_ONLINE_SECONDS])
   ]);
   return {
     publisher: { online: Boolean(beat?.online), last_seen_at: beat?.last_seen_at ?? null },
-    items: rows.map(row => ({ ...row, platform_name: PLATFORMS[row.platform].label, connected: CONNECTED_PLATFORMS.includes(row.platform) }))
+    // 专用手机：发朋友圈用。发布程序每分钟看一次；程序没在跑或很久没看过，就当不知道。
+    phone: beat?.online && beat.phone_fresh && beat.phone
+      ? { known: true, connected: Boolean(beat.phone.connected), ready: Boolean(beat.phone.ready), model: beat.phone.model || null,
+        moments_ready: Boolean(beat.phone.moments_ready), note: String(beat.phone.note || '') }
+      : { known: false, connected: false, ready: false, model: null, moments_ready: false, note: '发布程序没有在运行，不知道手机的状态' },
+    items: rows.map(row => ({ ...row, platform_name: PLATFORMS[row.platform].label, connected: CONNECTED_PLATFORMS.includes(row.platform), uses_phone: row.platform === 'moments' }))
   };
 }
 
@@ -399,6 +406,7 @@ export async function addAccount(pool, input) {
   if (!name || name.length > 40) throw fail(400, 'ACCOUNT_NAME_INVALID', '请填写账号名称（不超过 40 字）');
   const limit = Number(input.daily_limit ?? (input.platform === 'moments' ? 3 : 5));
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw fail(400, 'ACCOUNT_LIMIT_INVALID', '每日上限应为 1–50');
+  if (input.platform === 'moments' && limit > MOMENTS_DAILY_MAX) throw fail(400, 'ACCOUNT_LIMIT_INVALID', `朋友圈每天最多 ${MOMENTS_DAILY_MAX} 条`);
   try {
     const { rows: [row] } = await pool.query(`
       INSERT INTO leadgen.publish_accounts (platform, account_name, daily_limit) VALUES ($1, $2, $3) RETURNING id`, [input.platform, name, limit]);
@@ -415,6 +423,10 @@ export async function updateAccount(pool, accountId, input) {
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 50)) throw fail(400, 'ACCOUNT_LIMIT_INVALID', '每日上限应为 1–50');
   const name = input.account_name === undefined ? null : String(input.account_name).trim();
   if (name !== null && (!name || name.length > 40)) throw fail(400, 'ACCOUNT_NAME_INVALID', '请填写账号名称（不超过 40 字）');
+  if (limit !== null && limit > MOMENTS_DAILY_MAX) {
+    const { rows: [current] } = await pool.query('SELECT platform FROM leadgen.publish_accounts WHERE id = $1', [accountId]);
+    if (current?.platform === 'moments') throw fail(400, 'ACCOUNT_LIMIT_INVALID', `朋友圈每天最多 ${MOMENTS_DAILY_MAX} 条`);
+  }
   const { rowCount } = await pool.query(`
     UPDATE leadgen.publish_accounts SET is_paused = COALESCE($2, is_paused), daily_limit = COALESCE($3, daily_limit),
       account_name = COALESCE($4, account_name), updated_at = now() WHERE id = $1`,

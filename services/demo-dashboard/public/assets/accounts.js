@@ -16,7 +16,17 @@ function notice(text) {
   byId('notice').hidden = !text;
 }
 
+let phone = { known: false, note: '' };
+
+function phoneLine() {
+  const tag = phone.ready && phone.moments_ready ? '<span class="status st-ok">手机可以用</span>'
+    : phone.connected ? '<span class="status st-warn">手机已连接，还不能发</span>' : '<span class="status st-wait">手机没有连接</span>';
+  const detail = phone.ready && !phone.moments_ready ? '手机已连接，发朋友圈的步骤还没有在这台手机上调好' : phone.note;
+  return `${tag}<div class="meta">${escapeHtml(detail)}${phone.model ? ` · ${escapeHtml(phone.model)}` : ''}</div>`;
+}
+
 function loginLine(account) {
+  if (account.uses_phone) return phoneLine();
   if (!account.connected) return `<span class="status st-wait">${escapeHtml(account.platform_name)}还没有接入</span>`;
   if (['queued', 'opened'].includes(account.login_request_status)) return '<span class="status st-warn">等待扫码，请看这台电脑上弹出的浏览器窗口</span>';
   const tag = `<span class="status ${account.login_status === 'ok' ? 'st-ok' : 'st-warn'}">${LOGIN_NAME[account.login_status]}</span>`;
@@ -31,12 +41,12 @@ function accountCard(account) {
       <p>${TYPE_NAME[account.account_type]}${account.purpose === 'search' ? ' · 搜索专用' : ''}${account.is_paused ? ' · 已暂停发布' : ''}</p></div></div>
     <div class="pb">
       <div class="facts">
-        <div><span>登录状态</span><b>${loginLine(account)}</b></div>
+        <div><span>${account.uses_phone ? '专用手机' : '登录状态'}</span><b>${loginLine(account)}</b></div>
         <div><span>今天已发 / 每日上限</span><b>${account.published_today} / ${account.daily_limit} 条</b></div>
         <div><span>待发布</span><b>${account.queued} 条</b></div>
       </div>
       ${canWrite ? `<div class="msg-actions" style="margin-top:16px">
-        <button class="btn sm pri" type="button" data-act="login"${account.connected && !waiting ? '' : ' disabled'}>${account.login_status === 'ok' ? '重新扫码 / 换一个号' : '扫码登录'}</button>
+        ${account.uses_phone ? '' : `<button class="btn sm pri" type="button" data-act="login"${account.connected && !waiting ? '' : ' disabled'}>${account.login_status === 'ok' ? '重新扫码 / 换一个号' : '扫码登录'}</button>`}
         ${isAdmin ? `<button class="btn sm" type="button" data-act="pause" data-paused="${account.is_paused}">${account.is_paused ? '恢复发布' : '暂停发布'}</button>
         <button class="btn sm" type="button" data-act="limit" data-limit="${account.daily_limit}">改每日上限</button>
         <button class="btn sm" type="button" data-act="rename" data-name="${escapeHtml(account.account_name)}">改名称</button>` : ''}
@@ -48,6 +58,7 @@ async function load() {
   byId('error').hidden = true;
   try {
     const data = await api('/api/publishing/accounts');
+    phone = data.phone;
     byId('publisher-line').textContent = data.publisher.online ? '发布程序正在这台电脑上运行'
       : `发布程序没有在运行${data.publisher.last_seen_at ? `（最后在线 ${dateTime(data.publisher.last_seen_at)}）` : ''}。扫码登录和到点发布都需要它：双击 publisher 文件夹里的 start-publisher.cmd`;
     byId('list').innerHTML = data.items.length ? `<div class="stack">${data.items.map(accountCard).join('')}</div>`
