@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 OUT = ROOT / "docs" / "hz" / "screenshots" / "wp07"
 PAGES = [
     ("总览", "/"), ("企业发现", "/discovery.html"), ("招商客户", "/customers.html"), ("内容发布", "/publishing.html"),
-    ("互动收件箱", "/inbox.html"), ("发布账号", "/accounts.html"), ("系统设置", "/settings.html"),
+    ("互动收件箱", "/inbox.html"), ("发布账号", "/accounts.html"), ("留资线索", "/leads.html"), ("报表", "/reports.html"), ("系统设置", "/settings.html"),
 ]
 SIZES = {"1440": (1440, 900), "390": (390, 844)}
 

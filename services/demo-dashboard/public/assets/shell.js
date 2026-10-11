@@ -27,7 +27,7 @@ const NAV = [
   { key: 'accounts', label: '发布账号', href: '/accounts.html' },
   { key: 'leads', label: '留资线索', href: '/leads.html' },
   { group: '管理' },
-  { key: 'reports', label: '报表' },
+  { key: 'reports', label: '报表', href: '/reports.html' },
   { key: 'settings', label: '系统设置', href: '/settings.html' }
 ];
 

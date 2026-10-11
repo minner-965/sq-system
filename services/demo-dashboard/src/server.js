@@ -19,6 +19,7 @@ import { createRun, getSettings, runDiscovery } from './discovery/discoveryServi
 import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
 import { createCustomerRouter } from './customers/customerRoutes.js';
 import { createLeadRouter, createPublicLeadRouter } from './leads/leadRoutes.js';
+import { createReportRouter } from './reports/reportRoutes.js';
 import { createLlmClient } from './llm/llmClient.js';
 import { createPublishingRouter } from './publishing/publishingRoutes.js';
 import { createInboxRouter } from './inbox/inboxRoutes.js';
@@ -147,6 +148,7 @@ function mountWorkspace(auth) {
   app.use('/api', createLeasingRouter({ pool, auth }));
   app.use('/api', createCustomerRouter({ pool, auth }));
   app.use('/api', createLeadRouter({ pool, auth }));
+  app.use('/api', createReportRouter({ pool, auth }));
   app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
   app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
   app.use('/api/discovery', createDiscoveryRouter({

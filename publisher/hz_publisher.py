@@ -33,7 +33,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v12"
+VERSION = "v13"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -479,6 +479,9 @@ def sync_stranger_messages(conn: psycopg.Connection, account: dict) -> str:
     new_messages = 0
     for key, row in keyed:
         if key in skipped or (row["sender_name"], " ".join(row["text"].split())[:20]) in said:
+            continue
+        # 没有未读红点的不收：最近一句可能是我们自己在手机上回的话，或者已经有人在手机上看过了。
+        if not row.get("unread"):
             continue
         inserted = conn.execute(
             """INSERT INTO leadgen.interaction_messages

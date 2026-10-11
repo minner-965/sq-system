@@ -251,7 +251,7 @@ async def read_stranger_messages(account_id, follow_names: set[str] | None = Non
                     continue
                 sender, content = (await name.first.inner_text()).strip(), (await text.first.inner_text()).strip()
                 if sender and content:
-                    result["rows"].append({"sender_name": sender[:60], "text": content[:2000]})
+                    result["rows"].append({"sender_name": sender[:60], "text": content[:2000], "unread": await _row_unread(row)})
             # 当初从陌生人私信进来的人，关注了我们或我们回过话以后，会话会挪到主列表。只为这些昵称去“全部”里找，其他会话一行都不取。
             missing = set(follow_names or ()) - {row["sender_name"] for row in result["rows"]}
             if missing:
@@ -272,7 +272,7 @@ async def read_stranger_messages(account_id, follow_names: set[str] | None = Non
                     text = row.locator("[class*='item-content']")
                     content = (await text.first.inner_text()).strip() if await text.count() else ""
                     if content:
-                        result["rows"].append({"sender_name": sender[:60], "text": content[:2000]})
+                        result["rows"].append({"sender_name": sender[:60], "text": content[:2000], "unread": await _row_unread(row)})
             return result
         finally:
             await context.close()
@@ -317,6 +317,13 @@ async def _wait_for_rows(page):
             break
         await page.wait_for_timeout(2000)
     return rows
+
+
+async def _row_unread(row) -> bool:
+    """这一行会话有没有未读的红点。列表里显示的“最近一句”可能是对方说的，也可能是我们自己在手机上回的；
+    只有带未读红点的，才能确定是对方发来、还没人看过的新消息。"""
+    return await row.locator("[class*='semi-badge-danger'], [class*='semi-badge-count'], [class*='semi-badge-dot']").evaluate_all(
+        "badges => badges.some(badge => badge.offsetWidth > 0 && badge.offsetHeight > 0)")
 
 
 async def _find_row(rows, sender_name: str):
