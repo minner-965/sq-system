@@ -308,7 +308,7 @@ export function setStatus(pool, { messageId, status, user }) {
 }
 
 async function postFacts(db, message) {
-  if (!message.publish_task_id) return { lines: [], floors: await floors(db, null) };
+  if (!message.publish_task_id) return { lines: await mentionedUnits(db, message.content), floors: await floors(db, null) };
   const { rows: [post] } = await db.query(`
     SELECT m.topic, m.note, m.content_type, t.body, p.building, p.floor, p.unit_no, p.property_type, p.area_sqm,
            p.list_rent_per_sqm, p.management_fee_per_sqm, p.fit_out
@@ -321,6 +321,18 @@ async function postFacts(db, message) {
     lines.push(`公开报价：租金 ${Number(post.list_rent_per_sqm)} 元/㎡·月，管理费 ${Number(post.management_fee_per_sqm)} 元/㎡·月`);
   }
   return { lines, floors: await floors(db, post.property_type) };
+}
+
+/** 私信没有关联的帖子：对方提到了在租的房号（“1307 还租吗”）时，把这套房的公开资料给模型，其他一概不给。 */
+async function mentionedUnits(db, content) {
+  const numbers = [...new Set(String(content || '').match(/(?<!\d)\d{3,4}(?!\d)/g) || [])].slice(0, 5);
+  if (!numbers.length) return [];
+  const { rows } = await db.query(`
+    SELECT building, floor, unit_no, area_sqm, list_rent_per_sqm, management_fee_per_sqm, fit_out
+    FROM leadgen.properties WHERE unit_no = ANY($1) AND status <> 'signed' ORDER BY building, unit_no LIMIT 3`, [numbers]);
+  return rows.flatMap(row => [
+    `在租房源：${row.building} ${row.floor} 层 ${row.unit_no}，${Number(row.area_sqm)} ㎡${row.fit_out ? `，${row.fit_out}` : ''}`,
+    `公开报价：租金 ${Number(row.list_rent_per_sqm)} 元/㎡·月，管理费 ${Number(row.management_fee_per_sqm)} 元/㎡·月`]);
 }
 
 async function floors(db, propertyType) {
@@ -342,7 +354,8 @@ export async function draftReply(pool, { messageId, llm, env = process.env }) {
   const message = await loadMessage(pool, messageId);
   const { lines, floors: floorPrices } = await postFacts(pool, message);
   const messages = [
-    { role: 'system', content: REPLY_PROMPT },
+    { role: 'system', content: message.kind === 'direct_message' ? `${REPLY_PROMPT}
+注意：这本身就是私信对话，不要说“我私信您”；事实里没有的，说“我确认一下再回您”。` : REPLY_PROMPT },
     { role: 'user', content: `${lines.join('\n') || '（没有关联的帖子资料）'}\n\n对方（${message.sender_name}）在${PLATFORM_NAME[message.platform]}${KIND_NAME[message.kind]}里说：${message.content}` }
   ];
   const started = Date.now();

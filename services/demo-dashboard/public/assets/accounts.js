@@ -88,6 +88,7 @@ byId('list').addEventListener('click', async event => {
   }
 });
 
+if (!isAdmin) byId('publisher-line').insertAdjacentHTML('afterend', '<p class="meta">添加账号和扫码登录要用管理员账号（admin）</p>');
 if (isAdmin) {
   byId('open-add').hidden = false;
   byId('open-add').addEventListener('click', () => { byId('add').hidden = false; byId('a-name').focus(); });
