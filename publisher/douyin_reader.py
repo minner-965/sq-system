@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -110,7 +111,94 @@ async def read_douyin(account_id, wanted_item_ids: set[str]) -> dict:
             await browser.close()
 
 
-if __name__ == "__main__":
+class ReplyError(RuntimeError):
+    """回复没有发出去；信息是给招商员看的。"""
+
+
+async def send_comment_reply(account_id, post_title: str, sender_name: str, comment_text: str, reply_text: str, rehearse: bool = False) -> None:
+    """在评论管理页找到指定帖子下的那条评论，点“回复”，填入内容并发送。
+    rehearse=True 时只填不发，填完点“取消”，用来确认页面还能对上。找不到帖子或评论时抛 ReplyError。"""
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(storage_state=str(cookie_file(account_id)), viewport={"width": 1440, "height": 900})
+        page = await context.new_page()
+        try:
+            await page.goto(COMMENT_PAGE, wait_until="domcontentloaded", timeout=90000)
+            picker = page.get_by_role("button", name=re.compile(r"选择作品")).first
+            try:
+                await picker.wait_for(state="visible", timeout=40000)
+            except Exception:
+                raise ReplyError("打不开评论管理页，可能需要重新扫码登录")
+            await picker.click()
+            sheet = page.locator(".douyin-creator-interactive-sidesheet-body")
+            await sheet.wait_for(state="visible", timeout=15000)
+            row = sheet.get_by_text(post_title[:12]).first
+            try:
+                await row.wait_for(state="visible", timeout=15000)
+            except Exception:
+                raise ReplyError("在作品列表里没有找到这条帖子，可能已被删除")
+            await row.click()
+            await page.wait_for_timeout(4000)
+
+            # 包含这条评论原文和“回复”按钮的最里层那一块，就是这条评论。
+            needle = comment_text.split("[")[0].strip()[:20] or comment_text[:20]
+            # 同一句话可能有几个人说过：逐个看，找昵称也对得上的那条。
+            matches = page.get_by_text(needle)
+            try:
+                await matches.first.wait_for(state="visible", timeout=20000)
+            except Exception:
+                raise ReplyError("在帖子下没有找到这条评论，可能已被对方删除")
+            block = None
+            for index in range(await matches.count()):
+                candidate = matches.nth(index).locator("xpath=ancestor::div[.//*[normalize-space(text())='回复']][1]")
+                if await candidate.count() and sender_name in (await candidate.inner_text()):
+                    block = candidate
+                    break
+            if block is None:
+                raise ReplyError("在帖子下没有找到这条评论，可能已被对方删除")
+            await block.get_by_text("回复", exact=True).first.click()
+            box = page.locator('div[contenteditable="true"]').last
+            await box.wait_for(state="visible", timeout=10000)
+            hint = await box.get_attribute("placeholder") or await box.get_attribute("data-placeholder") or ""
+            if "回复" not in hint:
+                raise ReplyError("回复框没有打开")
+            await box.click()
+            await page.keyboard.type(reply_text, delay=30)
+            await page.wait_for_timeout(800)
+            if reply_text[:10] not in (await box.inner_text()):
+                raise ReplyError("回复框里没有填进内容")
+            # 两个字的按钮，页面会在字中间插一个空格（“发 送”）。
+            send = page.get_by_role("button", name=re.compile(r"^发\s*送$")).last
+            if not await send.count() or await send.is_disabled():
+                raise ReplyError("发送按钮点不了，可能内容不符合平台要求")
+            if rehearse:
+                return
+            await send.click()
+            # 发出去以后回复框会收起；再确认评论区里出现了这条回复，才算发出。
+            try:
+                await box.wait_for(state="hidden", timeout=15000)
+                await page.get_by_text(reply_text[:15]).first.wait_for(state="visible", timeout=15000)
+            except Exception:
+                raise ReplyError("点了发送，但没有在评论区看到这条回复，请到手机上确认")
+            await context.storage_state(path=str(cookie_file(account_id)))
+        except Exception:
+            # 留一张出错时的截图，方便看页面当时是什么样。
+            try:
+                (HERE / "state" / "diagnostics").mkdir(parents=True, exist_ok=True)
+                await page.screenshot(path=str(HERE / "state" / "diagnostics" / "reply_failure.png"), full_page=True)
+            except Exception:
+                pass
+            raise
+        finally:
+            await context.close()
+            await browser.close()
+
+
+if __name__ == "__main__" and len(sys_argv := __import__("sys").argv) > 2 and sys_argv[1] == "rehearse-reply":
+    # 演练回复：python douyin_reader.py rehearse-reply <账号编号> <帖子标题开头> <对方昵称> <评论原文开头> —— 只填不发。
+    asyncio.run(send_comment_reply(sys_argv[2], sys_argv[3], sys_argv[4], sys_argv[5], "（演练，不会发出）您好，具体情况我私信您", rehearse=True))
+    print("演练通过：找到了帖子和评论，回复框能填，没有发送。")
+elif __name__ == "__main__":
     # 手工试读：python douyin_reader.py <账号编号> [作品编号,作品编号]  —— 只打印条数和结构，不写数据库。
     import sys
     wanted = set(sys.argv[2].split(",")) if len(sys.argv) > 2 else set()

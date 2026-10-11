@@ -22,14 +22,14 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
-from douyin_reader import read_douyin
+from douyin_reader import ReplyError, read_douyin, send_comment_reply
 
 HERE = Path(__file__).parent.resolve()
 ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v3"
+VERSION = "v4"
 POLL_SECONDS = 20
 MIN_GAP_MINUTES = 10
 UPLOAD_TIMEOUT_SECONDS = 15 * 60
@@ -373,6 +373,35 @@ def process_inbox_checks(conn: psycopg.Connection) -> None:
         print(f"{account['account_name']}：{note}")
 
 
+def process_replies(conn: psycopg.Connection) -> None:
+    """把人工确认过的回复发到平台上。一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。"""
+    message = conn.execute(
+        """
+        SELECT i.id, i.account_id, i.sender_name, i.content, i.reply_text, t.title AS post_title, a.account_name
+        FROM leadgen.interaction_messages i
+        JOIN leadgen.publish_accounts a ON a.id = i.account_id
+        JOIN leadgen.publish_tasks t ON t.id = i.publish_task_id
+        WHERE i.reply_status = 'queued' AND i.platform = 'douyin' AND i.kind = 'comment' AND a.login_status = 'ok' AND NOT a.is_paused
+        ORDER BY i.reply_confirmed_at LIMIT 1
+        """).fetchone()
+    if not message:
+        return
+    try:
+        asyncio.run(send_comment_reply(message["account_id"], message["post_title"], message["sender_name"], message["content"], message["reply_text"]))
+    except ReplyError as error:
+        reason = str(error)
+    except Exception as error:
+        reason = f"发送时出错：{error}"[:200]
+    else:
+        conn.execute("UPDATE leadgen.interaction_messages SET reply_status = 'sent', replied_at = now(), reply_error = NULL, updated_at = now() WHERE id = %s", (message["id"],))
+        print(f"已回复 {message['sender_name']}（{message['account_name']}）")
+        return
+    conn.execute(
+        "UPDATE leadgen.interaction_messages SET reply_status = 'failed', reply_error = %s, updated_at = now() WHERE id = %s",
+        (f"{reason}。请复制回复内容到手机上回复", message["id"]))
+    print(f"回复没有发出去：{message['sender_name']}，{reason}")
+
+
 def process_due(conn: psycopg.Connection) -> int:
     done = 0
     while task := claim_due_task(conn):
@@ -414,12 +443,19 @@ def main(argv: list[str]) -> int:
             if command == "once":
                 print(f"处理了 {process_due(conn)} 条任务。")
                 return 0
-            print("发布程序已启动，按 Ctrl+C 停止。")
+            print(f"发布程序已启动（{VERSION}），按 Ctrl+C 停止。")
+            sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py"]
+            loaded = [path.stat().st_mtime for path in sources]
             while True:
+                # 程序文件更新了就退出，由 start-publisher.cmd 立刻重新启动，用上新程序。
+                if [path.stat().st_mtime for path in sources] != loaded:
+                    print("程序已更新，正在重新启动。")
+                    return 75
                 heartbeat(conn)
                 process_login_requests(conn)
                 process_due(conn)
                 process_inbox_checks(conn)
+                process_replies(conn)
                 time.sleep(POLL_SECONDS)
     print(__doc__)
     return 2
