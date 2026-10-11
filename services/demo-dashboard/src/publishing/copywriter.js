@@ -70,8 +70,14 @@ function facts(material, property, project) {
     if (property.delivery_standard) lines.push(`交付：${property.delivery_standard}`);
     if (property.allows_open_flame) lines.push('可明火');
   }
+  // 酒店类内容：酒店自己的资料（由发布服务从酒店档案里取）。
+  for (const line of material.venue_lines || []) lines.push(line);
   if (project?.address) lines.push(`项目：恒兆广场，${project.address}`);
   if (project?.transport_notes?.length) lines.push(`交通：${project.transport_notes.join('；')}`);
+  if (project?.parking_monthly_fee != null) {
+    lines.push(`停车：月卡 ${Number(project.parking_monthly_fee)} 元/月，临时停车 ${Number(project.parking_hourly_fee)} 元/小时${Number(project.parking_free_hours) ? `，前 ${Number(project.parking_free_hours)} 小时免费` : ''}`);
+  }
+  if (material.content_type === 'property' && project?.target_industries?.length) lines.push(`园区招商业态：${project.target_industries.join('、')}`);
   lines.push(`素材：图片 ${material.image_count} 张${material.video_count ? `，视频 ${material.video_count} 个` : ''}`);
   return lines.join('\n');
 }
@@ -93,6 +99,7 @@ ${STYLE_GUIDES[platform]}
 2. 租金只能写“欢迎咨询”或上面给出的公开报价，不写任何优惠价、最低价、底价。
 3. 像人写的：不用“赋能”“打造”“一站式”“尽享”这类套话，不用排比口号，不写“小编”“家人们”。
 4. 结尾引导留言或私信咨询，不留电话和微信号。
+5. 以恒兆广场工作人员的身份写，可以说“带你看看”“我们这间房”。不要假装成住过的客人、租户或路人，不编造“上周我去住了”“朋友推荐”这类个人经历和体验感受。
 只输出 JSON：{"title":"...","body":"...","topics":["..."]}${spec.titleMax ? '' : '，title 留空字符串'}。`;
   return [{ role: 'system', content: system }, { role: 'user', content: facts(material, property, project) }];
 }
