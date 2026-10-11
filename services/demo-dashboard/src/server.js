@@ -19,6 +19,7 @@ import { createRun, getSettings, runDiscovery } from './discovery/discoveryServi
 import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
 import { createCustomerRouter } from './customers/customerRoutes.js';
 import { createLlmClient } from './llm/llmClient.js';
+import { createPublishingRouter } from './publishing/publishingRoutes.js';
 
 const { Pool } = pg;
 const app = express();
@@ -138,6 +139,7 @@ function mountWorkspace(auth) {
 
   app.use('/api', createLeasingRouter({ pool, auth }));
   app.use('/api', createCustomerRouter({ pool, auth }));
+  app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })

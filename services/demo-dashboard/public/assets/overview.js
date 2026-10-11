@@ -60,8 +60,15 @@ function renderDistribution(items) {
   });
 }
 
+const TASK_CLASS = { draft: 'st-warn', confirmed: 'st-wait', publishing: 'st-wait', published: 'st-ok', failed: 'st-bad' };
 function renderPublishing(publishing) {
-  if (!publishing) byId('publishing').innerHTML = empty('内容发布尚未开通', '开通后这里显示本周的发布任务和各平台状态');
+  const when = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  const tasks = publishing.items.length ? publishing.items.map(item => `<a class="task rowlink" href="/publishing.html?id=${item.material_id}">
+      <div class="t"><span class="co">${escapeHtml(item.topic)}</span><span>${escapeHtml(item.platform_name)} · ${when(item.at)}</span></div>
+      <span class="status ${TASK_CLASS[item.status]}">${escapeHtml(item.status_name)}</span></a>`).join('')
+    : empty('还没有发布内容', '在“内容发布”里上传素材、生成文案后会出现在这里');
+  byId('publishing').innerHTML = `${tasks}<div class="plat">${publishing.platforms.map(platform => `<span class="tag">${platform.name} ${platform.state}</span>`).join('')}</div>`;
+  byId('publishing-sub').textContent = `本周计划 ${publishing.planned_this_week} 条${publishing.waiting_confirmation ? `，待确认 ${publishing.waiting_confirmation} 条` : ''}`;
 }
 
 function followUpTime(item) {

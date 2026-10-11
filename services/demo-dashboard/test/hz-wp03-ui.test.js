@@ -66,6 +66,8 @@ function overviewPool(stageRows) {
       if (/viewings_this_month/.test(sql)) return { rows: [{ viewings_this_month: 4, due_today: 2, overdue: 1 }] };
       if (/SELECT stage, count/.test(sql)) return { rows: stageRows };
       if (/FROM leadgen\.sectors s/.test(sql)) return { rows: [{ key: 'office_retail', name: '商铺写字楼', companies: 5 }] };
+      if (/AS planned/.test(sql)) return { rows: [{ planned: 2, waiting: 1 }] };
+      if (/FROM leadgen\.publish_accounts/.test(sql)) return { rows: [{ platform: 'douyin', ready: false, n: 1 }] };
       return { rows: [] };
     }
   };
@@ -77,7 +79,8 @@ test('overview funnel counts everyone who reached each stage', async () => {
   assert.deepEqual(data.funnel.steps.map(step => step.count), [19, 9, 4, 1, 1]);
   assert.equal(data.funnel.lost, 4);
   assert.deepEqual(data.properties, { available_units: 54, available_area_sqm: 6759, retail_units: 10, office_units: 44 });
-  assert.equal(data.publishing, null);
+  assert.deepEqual([data.publishing.planned_this_week, data.publishing.waiting_confirmation, data.publishing.items], [2, 1, []]);
+  assert.deepEqual(data.publishing.platforms.map(platform => platform.state), ['待登录', '未添加账号', '未添加账号', '未添加账号']);
 });
 
 test('overview hides properties from users outside the office and retail sector and rejects other sectors', async () => {

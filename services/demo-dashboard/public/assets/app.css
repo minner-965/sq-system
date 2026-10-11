@@ -175,6 +175,30 @@ a.btn{display:inline-block}
 @media (max-width:1100px){.cols{grid-template-columns:1fr}}
 @media (max-width:760px){.facts{grid-template-columns:1fr 1fr}.track-form{grid-template-columns:1fr}}
 
+/* 内容发布 */
+.task{display:block;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.task .t{display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-bottom:6px}
+.task .t span:last-child{color:var(--text-3);font-size:12px;white-space:nowrap}
+.plat{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft)}
+.st-warn{background:var(--warn-soft);color:var(--warn)}.st-bad{background:var(--bad-soft);color:var(--bad)}
+.lk{color:var(--primary)}
+.tags{line-height:2}
+.media-row{display:flex;align-items:center;gap:12px}
+.media-row img,.no-cover{width:56px;height:56px;border-radius:6px;object-fit:cover;background:var(--line-soft);flex-shrink:0;display:grid;place-items:center;font-size:12px;color:var(--text-3)}
+.media-row .co,.media-row .meta{display:block}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.thumbs img,.thumbs video{width:120px;height:120px;border-radius:6px;object-fit:cover;background:var(--line-soft);display:block}
+.draft-bar{display:flex;align-items:center;gap:16px;margin:16px 0;flex-wrap:wrap}
+.draft-bar .foot-note{margin:0}
+.draft-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.draft-form .field label small{color:var(--text-3);margin-left:6px}
+.draft-form .field label small.down{color:var(--bad)}
+.confirm-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.confirm-row input[type="datetime-local"]{border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:inherit;font-size:13px}
+.confirm-row .check{margin-right:0}
+.versions{margin-top:16px}
+@media (max-width:1100px){.draft-grid{grid-template-columns:1fr}}
+
 /* 列表页：工具条、分栏、候选表格 */
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .notice{border:1px solid #CFE0FB;background:var(--primary-soft);color:#1D4FBF;border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px}

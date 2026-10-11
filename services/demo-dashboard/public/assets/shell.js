@@ -20,7 +20,7 @@ const NAV = [
   { key: 'customers', label: '招商客户', short: '客户', href: '/customers.html' },
   { key: 'properties', label: '房源与服务' },
   { group: '内容' },
-  { key: 'publishing', label: '内容发布', short: '发布' },
+  { key: 'publishing', label: '内容发布', short: '发布', href: '/publishing.html' },
   { key: 'leads', label: '留资线索' },
   { group: '管理' },
   { key: 'reports', label: '报表' },

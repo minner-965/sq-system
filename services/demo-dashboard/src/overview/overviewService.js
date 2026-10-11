@@ -14,6 +14,36 @@ export function visibleSectors(user, requested) {
   return user.sectors.includes(requested) ? [requested] : null;
 }
 
+const PLATFORM_NAME = { douyin: '抖音', channels: '视频号', xiaohongshu: '小红书', moments: '朋友圈' };
+const TASK_STATUS_NAME = { draft: '待确认', confirmed: '待发布', publishing: '发布中', published: '已发布', failed: '发布失败', withdrawn: '已撤回' };
+
+/** Recent publishing tasks that already have copy, plus which platforms have an account. */
+async function publishingSummary(pool) {
+  const [{ rows: items }, { rows: accounts }, { rows: [week] }] = await Promise.all([
+    pool.query(`
+      SELECT t.id, t.material_id, m.topic, t.platform, t.status, COALESCE(t.published_at, t.scheduled_at, t.updated_at) AS at, t.error_message
+      FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
+      WHERE t.body IS NOT NULL AND t.status <> 'withdrawn'
+      ORDER BY (t.status IN ('failed', 'draft')) DESC, COALESCE(t.published_at, t.scheduled_at, t.updated_at) DESC LIMIT 4`),
+    pool.query(`SELECT platform, bool_or(login_status = 'ok' AND NOT is_paused) AS ready, count(*)::int AS n FROM leadgen.publish_accounts WHERE purpose = 'publish' GROUP BY platform`),
+    pool.query(`
+      SELECT count(*) FILTER (WHERE status IN ('confirmed', 'publishing', 'published')
+               AND COALESCE(published_at, scheduled_at) >= date_trunc('week', now())
+               AND COALESCE(published_at, scheduled_at) < date_trunc('week', now()) + interval '7 days')::int AS planned,
+             count(*) FILTER (WHERE status = 'draft' AND body IS NOT NULL)::int AS waiting
+      FROM leadgen.publish_tasks`)
+  ]);
+  return {
+    planned_this_week: week.planned,
+    waiting_confirmation: week.waiting,
+    items: items.map(item => ({ ...item, platform_name: PLATFORM_NAME[item.platform], status_name: TASK_STATUS_NAME[item.status] })),
+    platforms: Object.entries(PLATFORM_NAME).map(([key, name]) => {
+      const account = accounts.find(row => row.platform === key);
+      return { key, name, state: !account ? '未添加账号' : account.ready ? '已连接' : '待登录' };
+    })
+  };
+}
+
 export async function getOverview(pool, { user, sector }) {
   const sectors = visibleSectors(user, sector);
   if (!sectors) throw Object.assign(new Error('当前账号不负责这个板块'), { code: 'SECTOR_FORBIDDEN', status: 403 });
@@ -85,7 +115,6 @@ export async function getOverview(pool, { user, sector }) {
     },
     funnel: { steps: funnel, lost: stageCount.lost ?? 0 },
     sector_distribution: bySector.rows,
-    // 内容发布在 WP06 开通。
-    publishing: null
+    publishing: await publishingSummary(pool)
   };
 }
