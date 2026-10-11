@@ -130,7 +130,8 @@ def notify(conn: psycopg.Connection, title: str, body: str, link: str, user_id=N
     conn.execute(
         "INSERT INTO leadgen.notifications (recipient_role, kind, title, body, link) VALUES ('admin', 'publishing', %s, %s, %s)",
         (title, body, link))
-    if user_id:
+    # 确认这条内容的人如果本身就是管理员，上面那条已经能看到，不再发第二遍。
+    if user_id and not conn.execute("SELECT 1 FROM leadgen.users WHERE id = %s AND role_key = 'admin'", (user_id,)).fetchone():
         conn.execute(
             "INSERT INTO leadgen.notifications (recipient_user_id, kind, title, body, link) VALUES (%s, 'publishing', %s, %s, %s)",
             (user_id, title, body, link))
