@@ -38,6 +38,22 @@
         </section>
 
         <section class="card settings" style="margin-top:16px">
+          <div class="ph"><div><h3>陌生人私信自动回复</h3><p>陌生人发来私信时，先用下面这段话回一句，请对方留联系方式；同一个人只回一次，朋友私信不回</p></div></div>
+          <div class="pb">
+            <label class="check"><input type="checkbox" id="s-auto" name="dm_auto_reply_enabled"> 打开自动回复</label>
+            <div class="field" style="margin-top:14px">
+              <label for="s-auto-text">回复的话（不超过 300 字）</label>
+              <textarea id="s-auto-text" name="dm_auto_reply_text" maxlength="300" rows="3"></textarea>
+            </div>
+            <div class="field" style="max-width:240px">
+              <label for="s-auto-limit">每天最多自动回几个人</label>
+              <input id="s-auto-limit" name="dm_auto_reply_daily_limit" type="number" min="1" max="200" required>
+            </div>
+            <p class="meta">对方已经留了电话、微信、QQ 或邮箱的，不再自动回，直接提醒你。两条回复之间至少隔 3 分钟。</p>
+          </div>
+        </section>
+
+        <section class="card settings" style="margin-top:16px">
           <div class="ph"><div><h3>意向关键词</h3><p>平时每条消息都会判断意向；这些词用来在判断暂时用不了时兜底，带这些词的消息先按意向处理</p></div></div>
           <div class="pb">
             <div class="tags" id="keywords" aria-live="polite"></div>

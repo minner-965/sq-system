@@ -58,11 +58,16 @@ test('without a model, keywords decide: a hit is an enquiry, no hit is ordinary 
   assert.deepEqual([miss.intent, miss.source], ['chat', 'keyword']);
 });
 
-test('replies are only sent after a person confirms, and never mention the floor price', () => {
+test('replies are queued only by a person confirming or by the fixed reply to stranger messages, and never mention the floor price', () => {
   const service = readFileSync(path.join(appRoot, 'src', 'inbox', 'inboxService.js'), 'utf8');
   // A reply becomes 'queued' in exactly one place, confirmReply, which records who confirmed it.
   assert.equal(service.match(/: 'queued';/g).length, 1);
-  assert.doesNotMatch(service, /reply_status = 'queued'|reply_status = 'sent'/);
+  // The one exception (CLAUDE.md section 3, confirmed 2026-10-11): the fixed reply to a stranger's direct message.
+  assert.equal(service.match(/reply_status = 'queued'/g).length, 1);
+  assert.ok(service.indexOf("reply_status = 'queued'") > service.indexOf('async function queueAutoReply')
+    && service.indexOf("reply_status = 'queued'") < service.indexOf('* Classifies every message that has no intent yet'));
+  assert.doesNotMatch(service, /reply_status = 'sent'/);
+  assert.match(service, /export async function updateInboxSettings[\s\S]+findForbidden\(text/);
   assert.match(service, /export function confirmReply[\s\S]+findForbidden\(reply[\s\S]+reply_confirmed_by = \$4/);
   assert.match(service, /export async function draftReply[\s\S]+findForbidden\(reply, floorPrices\)/);
   const migration = readFileSync(path.resolve(appRoot, '..', '..', 'database', 'migrations', '074_hz_interaction_inbox.sql'), 'utf8');
@@ -83,4 +88,17 @@ test('a phone number or WeChat id the sender left is picked out of the message',
   assert.equal(extractContact('qq 123456789').qq, '123456789');
   assert.equal(extractContact('发我邮箱 zhang.san@example.com 谢谢').email, 'zhang.san@example.com');
   assert.deepEqual(extractContact('多少钱一平'), { phone: null, wechat: null, qq: null, email: null });
+});
+
+test('the automatic reply is limited to stranger messages read by the system, once per person, within a daily limit', () => {
+  const service = readFileSync(path.join(appRoot, 'src', 'inbox', 'inboxService.js'), 'utf8');
+  const rule = service.slice(service.indexOf('async function queueAutoReply'), service.indexOf('* Classifies every message that has no intent yet'));
+  assert.match(rule, /message\.kind !== 'direct_message' \|\| message\.source !== 'reader'/);
+  assert.match(rule, /message\.intent === 'spam'/);
+  assert.match(rule, /contact\.phone \|\| contact\.wechat \|\| contact\.qq \|\| contact\.email/);
+  assert.match(rule, /s\.dm_auto_reply_enabled AND i\.reply_status = 'none'/);
+  assert.match(rule, /earlier\.sender_platform_id = i\.sender_platform_id/);
+  assert.match(rule, /< s\.dm_auto_reply_daily_limit/);
+  // Comments are never answered automatically: the only caller passes through this guard.
+  assert.equal(service.split('queueAutoReply(').length - 1, 2);
 });

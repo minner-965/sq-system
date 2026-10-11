@@ -32,6 +32,9 @@ function fill(settings) {
   keywords = [...settings.intent_keywords];
   renderKeywords();
   const options = '<option value="">不指定（管理员处理）</option>' + settings.users.map(user => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join('');
+  byId('s-auto').checked = settings.dm_auto_reply_enabled;
+  byId('s-auto-text').value = settings.dm_auto_reply_text;
+  byId('s-auto-limit').value = settings.dm_auto_reply_daily_limit;
   for (const name of ASSIGNEES) {
     const select = byId('form').elements[name];
     select.innerHTML = options;
@@ -73,7 +76,7 @@ byId('form').addEventListener('submit', async event => {
   addKeyword();
   if (byId('form-error').textContent) return;
   const form = event.currentTarget;
-  const body = { intent_keywords: keywords };
+  const body = { intent_keywords: keywords, dm_auto_reply_enabled: byId('s-auto').checked, dm_auto_reply_text: byId('s-auto-text').value, dm_auto_reply_daily_limit: Number(byId('s-auto-limit').value) };
   for (const name of ASSIGNEES) body[name] = form.elements[name].value || null;
   byId('save').disabled = true;
   notice('');

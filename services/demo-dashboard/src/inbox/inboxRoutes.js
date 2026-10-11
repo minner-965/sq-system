@@ -48,7 +48,7 @@ export function createInboxRouter({ pool, auth, llm }) {
   router.post('/check', ...write, handle(async (req, res) => res.status(202).json(await requestCheck(pool, { user: req.managementUser }))));
 
   router.get('/settings', ...admin, handle(async (_req, res) => res.json(await getInboxSettings(pool))));
-  router.put('/settings', ...admin, handle(async (req, res) => res.json(await updateInboxSettings(pool, req.body || {}))));
+  router.put('/settings', ...admin, handle(async (req, res) => res.json(await updateInboxSettings(pool, req.body || {}, req.managementUser))));
 
   return router;
 }
