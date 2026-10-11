@@ -102,3 +102,15 @@ test('the automatic reply is limited to stranger messages read by the system, on
   // Comments are never answered automatically: the only caller passes through this guard.
   assert.equal(service.split('queueAutoReply(').length - 1, 2);
 });
+
+test('direct messages are answered by a person on the phone while sending from the back office is unavailable', async () => {
+  const { DM_SENDING_AVAILABLE, updateInboxSettings } = await import('../src/inbox/inboxService.js');
+  assert.equal(DM_SENDING_AVAILABLE, false);
+  const pool = { query: async () => ({ rows: [], rowCount: 0 }) };
+  await assert.rejects(
+    () => updateInboxSettings(pool, { intent_keywords: ['租'], dm_auto_reply_enabled: true, dm_auto_reply_text: '您好', dm_auto_reply_daily_limit: 30 }, { id: 'u' }),
+    error => error.code === 'DM_AUTO_REPLY_UNAVAILABLE');
+  const service = readFileSync(path.join(appRoot, 'src', 'inbox', 'inboxService.js'), 'utf8');
+  assert.match(service, /message\.kind === 'direct_message' && !DM_SENDING_AVAILABLE/);
+  assert.match(service, /async function queueAutoReply[^}]+if \(!DM_SENDING_AVAILABLE\) return false;/);
+});
