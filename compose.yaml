@@ -38,6 +38,7 @@ services:
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       DPV_MAINTENANCE_READ_ONLY: ${DPV_MAINTENANCE_READ_ONLY:-false}
       SESSION_SECRET: ${SESSION_SECRET}
+      AMAP_KEY: ${AMAP_KEY:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -65,6 +66,7 @@ services:
       HTTP_LISTEN_ENABLED: "false"
       PGBOSS_ENABLED: "true"
       PGBOSS_PROCESS_JOBS: "true"
+      AMAP_KEY: ${AMAP_KEY:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}

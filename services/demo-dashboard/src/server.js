@@ -14,6 +14,9 @@ import { poolConfig } from './db/pool.js';
 import { runMigrations } from './db/migrator.js';
 import { createLeasingRouter } from './leasing/leasingRoutes.js';
 import { getOverview } from './overview/overviewService.js';
+import { createProviders } from './discovery/providers/index.js';
+import { createRun, getSettings, runDiscovery } from './discovery/discoveryService.js';
+import { createDiscoveryRouter } from './discovery/discoveryRoutes.js';
 
 const { Pool } = pg;
 const app = express();
@@ -53,12 +56,27 @@ async function scoreCompany(data, job) {
   return { processed: 1, score_run_ids: [run.id] };
 }
 
+const providers = createProviders();
+
+// 手动检索带着 run_id 进来；每天定时的那次没有，在这里建记录。
+async function discoverCompanies(data) {
+  let runId = data.run_id;
+  if (!runId) {
+    if (!providers.amap.configured || !(await getSettings(pool)).daily_run_enabled) return { skipped: true };
+    runId = await createRun(pool, { trigger: 'scheduled' });
+  }
+  const totals = await runDiscovery(pool, { runId, provider: providers.amap, log: line => audit('discovery', { run_id: runId, detail: line }) });
+  audit('discovery_completed', { run_id: runId, ...totals });
+  return totals;
+}
+
 const jobQueue = createPhase5Queue({
   telemetry,
   audit,
   handlers: {
     [PHASE5_QUEUES.SCORE_COMPANY]: scoreCompany,
-    [PHASE5_QUEUES.REPLAY_RULE_VERSION]: scoreCompany
+    [PHASE5_QUEUES.REPLAY_RULE_VERSION]: scoreCompany,
+    [PHASE5_QUEUES.DISCOVER_COMPANIES]: discoverCompanies
   }
 });
 
@@ -116,6 +134,10 @@ function mountWorkspace(auth) {
   });
 
   app.use('/api', createLeasingRouter({ pool, auth }));
+  app.use('/api/discovery', createDiscoveryRouter({
+    pool, auth, providers,
+    enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })
+  }));
 
   app.get('/api/overview', ...signedIn, async (req, res, next) => {
     try { res.json(await getOverview(pool, { user: req.managementUser, sector: req.query.sector })); } catch (error) { next(error); }
@@ -168,6 +190,8 @@ async function start() {
     audit('migrations_checked', { total: result.total, applied: result.applied.length });
   }
   await jobQueue.start();
+  // 每天 07:30 检索一次周边企业（设置里可以关）。由应用登记，worker 执行。
+  if (httpListenEnabled && jobQueue.enabled) await jobQueue.schedule(PHASE5_QUEUES.DISCOVER_COMPANIES, '30 7 * * *');
   const server = httpListenEnabled
     ? app.listen(port, '0.0.0.0', () => console.log(`App listening on ${port}`))
     : null;

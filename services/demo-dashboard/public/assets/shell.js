@@ -16,7 +16,7 @@ const ICONS = {
 const NAV = [
   { key: 'overview', label: '工作台总览', short: '总览', href: '/' },
   { group: '招商' },
-  { key: 'discovery', label: '企业发现', short: '发现' },
+  { key: 'discovery', label: '企业发现', short: '发现', href: '/discovery.html' },
   { key: 'customers', label: '招商客户', short: '客户' },
   { key: 'properties', label: '房源与服务' },
   { group: '内容' },
