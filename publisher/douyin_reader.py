@@ -198,7 +198,7 @@ async def read_douyin(account_id, wanted_item_ids: set[str]) -> dict:
             await browser.close()
 
 
-async def read_stranger_messages(account_id) -> dict:
+async def read_stranger_messages(account_id, follow_names: set[str] | None = None) -> dict:
     """读私信管理页的“陌生人私信”一栏，返回 {"logged_in": bool, "rows": [{"sender_name", "text"}]}。
     只点这一个栏目，不点开任何会话（点开会把消息标成已读），所以拿到的是每个人最近的一句话。
     朋友私信和群消息两栏不碰。私信走的是加密通道，没有可读的数据接口，只能读页面上显示的内容。"""
@@ -241,9 +241,8 @@ async def read_stranger_messages(account_id) -> dict:
             else:
                 result.setdefault("errors", []).append("私信页一直在加载，这次没读到")
                 return result
-            if await empty.count():
-                return result
-            for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
+            # 这一栏是空的也不提前结束：后面还要去主列表里跟进已经挪走的会话。
+            for index in range(0 if await empty.count() else min(await rows.count(), MAX_MESSAGE_ROWS)):
                 row = rows.nth(index)
                 name = row.locator("[class*='item-header-name']")
                 text = row.locator("[class*='item-content']")
@@ -253,6 +252,27 @@ async def read_stranger_messages(account_id) -> dict:
                 sender, content = (await name.first.inner_text()).strip(), (await text.first.inner_text()).strip()
                 if sender and content:
                     result["rows"].append({"sender_name": sender[:60], "text": content[:2000]})
+            # 当初从陌生人私信进来的人，关注了我们或我们回过话以后，会话会挪到主列表。只为这些昵称去“全部”里找，其他会话一行都不取。
+            missing = set(follow_names or ()) - {row["sender_name"] for row in result["rows"]}
+            if missing:
+                try:
+                    await _open_tab(page, "全部")
+                except ReplyError:
+                    result.setdefault("errors", []).append("主列表没打开，已挪走的会话这次没读")
+                    return result
+                rows = await _wait_for_rows(page)
+                for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
+                    row = rows.nth(index)
+                    name = row.locator("[class*='item-header-name']")
+                    if not await name.count():
+                        continue
+                    sender = (await name.first.inner_text()).strip()
+                    if sender not in missing:
+                        continue
+                    text = row.locator("[class*='item-content']")
+                    content = (await text.first.inner_text()).strip() if await text.count() else ""
+                    if content:
+                        result["rows"].append({"sender_name": sender[:60], "text": content[:2000]})
             return result
         finally:
             await context.close()
@@ -267,9 +287,9 @@ class StrangerTabError(ReplyError):
     """没进到陌生人私信一栏。这时页面上是别的栏目（可能有朋友的聊天），不留截图。"""
 
 
-async def _open_stranger_tab(page) -> None:
-    """切到“陌生人私信”一栏并等它稳定下来；切不过去就报错，绝不在别的栏目里继续。"""
-    tab = page.get_by_role("tab", name="陌生人私信")
+async def _open_tab(page, name: str) -> None:
+    """切到私信管理页的某一栏并等它稳定下来；切不过去就报错，绝不在别的栏目里继续。"""
+    tab = page.get_by_role("tab", name=name, exact=True)
     try:
         await tab.wait_for(state="visible", timeout=40000)
     except Exception:
@@ -277,16 +297,41 @@ async def _open_stranger_tab(page) -> None:
     # 页面还在加载时点栏目不生效，多试几次。
     for _ in range(12):
         await page.wait_for_timeout(3000)
-        if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() == "陌生人私信":
+        if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() == name:
             break
         await tab.click()
     await page.wait_for_timeout(10000)
-    if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() != "陌生人私信":
-        raise StrangerTabError("没能切到陌生人私信一栏")
+    if (await page.locator(".semi-tabs-tab-active").first.inner_text()).strip() != name:
+        raise StrangerTabError(f"没能切到“{name}”一栏")
 
 
-async def send_stranger_message(account_id, sender_name: str, last_text: str, reply_text: str, rehearse: bool = False) -> None:
-    """在“陌生人私信”一栏里找到这个人的会话，回一句话。只在这一栏里找；找不到、对不上就报错，不发。
+async def _open_stranger_tab(page) -> None:
+    await _open_tab(page, "陌生人私信")
+
+
+async def _wait_for_rows(page):
+    """等当前栏目的会话列表出来（或明确显示没有私信），返回各行。"""
+    rows = page.locator(".semi-tabs-pane-active .ReactVirtualized__Grid__innerScrollContainer > *")
+    for _ in range(15):
+        if await rows.locator("[class*='item-header-name']").count() or await page.locator(".semi-tabs-pane-active").get_by_text("还没有收到私信").count():
+            break
+        await page.wait_for_timeout(2000)
+    return rows
+
+
+async def _find_row(rows, sender_name: str):
+    for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
+        row = rows.nth(index)
+        name = row.locator("[class*='item-header-name']")
+        if await name.count() and (await name.first.inner_text()).strip() == sender_name:
+            return row
+    return None
+
+
+async def send_stranger_message(account_id, sender_name: str, last_text: str, reply_text: str, rehearse: bool = False, follow_to_main: bool = False) -> None:
+    """在“陌生人私信”一栏里找到这个人的会话，回一句话。找不到、对不上就报错，不发。
+    对方关注了我们或我们回过话以后，会话会从陌生人一栏挪到主列表；follow_to_main=True 时再到“全部”里按昵称找这一个人
+    （调用方只对当初从陌生人私信进来的人这样做，别的会话不看）。
     rehearse=True 时只填不发，填完清空。打开会话会把对方的消息标成已读。"""
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
@@ -295,21 +340,14 @@ async def send_stranger_message(account_id, sender_name: str, last_text: str, re
         try:
             await page.goto(MESSAGE_PAGE, wait_until="domcontentloaded", timeout=90000)
             await _open_stranger_tab(page)
-            rows = page.locator(".semi-tabs-pane-active .ReactVirtualized__Grid__innerScrollContainer > *")
-            # 列表要过一会儿才出来：等到有会话，或者明确显示没有私信。
-            for _ in range(15):
-                if await rows.locator("[class*='item-header-name']").count() or await page.locator(".semi-tabs-pane-active").get_by_text("还没有收到私信").count():
-                    break
-                await page.wait_for_timeout(2000)
-            target = None
-            for index in range(min(await rows.count(), MAX_MESSAGE_ROWS)):
-                row = rows.nth(index)
-                name = row.locator("[class*='item-header-name']")
-                if await name.count() and (await name.first.inner_text()).strip() == sender_name:
-                    target = row
-                    break
+            target = await _find_row(await _wait_for_rows(page), sender_name)
+            in_main = False
+            if target is None and follow_to_main:
+                await _open_tab(page, "全部")
+                target = await _find_row(await _wait_for_rows(page), sender_name)
+                in_main = target is not None
             if target is None:
-                raise ReplyError("在陌生人私信里没有找到这个人的会话，可能对方已删除，或已经成了朋友")
+                raise ReplyError("没有找到这个人的会话，可能对方已删除")
             shown = (await target.locator("[class*='item-content']").first.inner_text()).strip()
             if last_text[:15] not in shown and shown[:15] not in last_text:
                 raise ReplyError("这个人的会话里最新一句和系统里的对不上，可能对方又发了新消息，请先“立即检查”")
@@ -319,14 +357,24 @@ async def send_stranger_message(account_id, sender_name: str, last_text: str, re
                 await box.wait_for(state="visible", timeout=15000)
             except Exception:
                 raise ReplyError("会话打开了，但没有出现输入框")
-            # 打开以后再核对两件事：还在“陌生人私信”这一栏；右边会话顶上的名字就是这个人。
+            # 打开以后再核对：选中的就是这一行；从陌生人一栏打开的，还要确认仍在陌生人一栏；右边会话顶上的名字就是这个人。
             where = page.locator(".semi-tabs-pane-active [class*='sub-tab-item'][class*='active']")
-            if not await where.count() or (await where.first.inner_text()).strip() != "陌生人私信" or not await target.locator(".semi-list-item[class*='active']").count():
-                raise ReplyError("打开的会话不在陌生人私信一栏，没有发送")
+            in_stranger_tab = bool(await where.count()) and (await where.first.inner_text()).strip() == "陌生人私信"
+            if not await target.locator(".semi-list-item[class*='active']").count() or (not in_main and not in_stranger_tab):
+                raise ReplyError("打开的会话和要回的不是同一个，没有发送")
             header = page.locator("[class*='box-header-name']")
             titled = bool(await header.count()) and (await header.first.inner_text()).strip() == sender_name
             if not titled:
                 raise ReplyError("打开的会话不是这个人的，没有发送")
+            wanted = "".join(reply_text.split())
+
+            async def said_count() -> int:
+                return await page.evaluate(
+                    """(wanted) => [...document.querySelectorAll("[class*='box-container'] *")].filter(element =>
+                        !element.closest('[contenteditable]') && !element.closest('.semi-list-item') && element.childElementCount === 0
+                        && element.textContent.split(/\\s+/).join('') === wanted).length""", wanted)
+
+            before = await said_count()
             await box.click()
             await page.keyboard.type(reply_text, delay=30)
             await page.wait_for_timeout(800)
@@ -340,16 +388,13 @@ async def send_stranger_message(account_id, sender_name: str, last_text: str, re
                 await page.keyboard.press("Backspace")
                 return
             await send.click()
-            # 聊天记录里（输入框以外）出现了这句话，才算发出。
+            # 聊天记录里这句话比发之前多了一条，并且输入框清空了，才算发出。
+            # （之前只看“出现了没有”，开头相同的旧话会被当成刚发的，报过一次假的“已发出”。）
             posted = False
             for _ in range(10):
                 await page.wait_for_timeout(2000)
-                bubbles = page.locator("[class*='box-container']").get_by_text(reply_text[:15])
-                for index in range(await bubbles.count()):
-                    if await bubbles.nth(index).evaluate("element => !element.closest('[contenteditable]') && !element.closest('.semi-list-item')"):
-                        posted = True
-                        break
-                if posted:
+                if await said_count() > before and not (await box.inner_text()).strip():
+                    posted = True
                     break
             if not posted:
                 raise ReplyError("点了发送，但没有在聊天记录里看到这句话，请到手机上确认")
