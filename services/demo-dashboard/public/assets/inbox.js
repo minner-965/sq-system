@@ -145,6 +145,32 @@ byId('manual-form').addEventListener('submit', async event => {
   } catch (error) { byId('manual-error').textContent = error.message; }
 });
 
+// ---------- 读取状态和“立即检查” ----------
+
+let checkTimer;
+async function loadCheckStatus({ reloadWhenDone = false } = {}) {
+  try {
+    const status = await api('/api/inbox/check');
+    const checking = status.accounts.some(account => account.checking);
+    byId('sub').textContent = !status.accounts.length ? '还没有登录好的发布账号，暂时读不到评论和私信'
+      : checking ? '正在读取各平台的新评论……'
+        : status.accounts.map(account => `${account.platform_name}“${account.account_name}”${account.last_inbox_check_at ? `上次检查 ${dateTime(account.last_inbox_check_at)}：${account.last_inbox_check_note || ''}` : '还没有检查过'}`).join('；')
+          + (status.publisher_online ? '。每小时自动检查一次' : '。发布程序没有在运行，不会自动检查');
+    const button = byId('check-now');
+    if (button) { button.disabled = checking; button.textContent = checking ? '正在检查' : '立即检查'; }
+    clearTimeout(checkTimer);
+    if (checking) checkTimer = setTimeout(() => loadCheckStatus({ reloadWhenDone: true }), 4000);
+    else if (reloadWhenDone) { await load(); notice('检查完了。新评论要等一分钟左右完成判断后才会出现在列表里。'); }
+  } catch { /* 状态行读不到不影响列表 */ }
+}
+
+byId('check-now')?.addEventListener('click', async () => {
+  notice('');
+  try { await send('/api/inbox/check', 'POST'); await loadCheckStatus(); }
+  catch (error) { notice(error.message); }
+});
+await loadCheckStatus();
+
 if ('Notification' in window && Notification.permission === 'default') {
   byId('ask-notify').hidden = false;
   byId('allow-notify').addEventListener('click', async () => { await Notification.requestPermission(); byId('ask-notify').hidden = true; });

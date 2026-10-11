@@ -11,7 +11,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import random
 import subprocess
 import sys
 import time
@@ -20,10 +22,14 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
+from douyin_reader import read_douyin
+
 HERE = Path(__file__).parent.resolve()
 ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
+# 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
+VERSION = "v3"
 POLL_SECONDS = 20
 MIN_GAP_MINUTES = 10
 UPLOAD_TIMEOUT_SECONDS = 15 * 60
@@ -177,7 +183,7 @@ def process_login_requests(conn: psycopg.Connection) -> None:
 
 
 def heartbeat(conn: psycopg.Connection) -> None:
-    conn.execute("UPDATE leadgen.publisher_heartbeat SET last_seen_at = now(), host_name = %s WHERE id = 1", (os.environ.get("COMPUTERNAME", ""),))
+    conn.execute("UPDATE leadgen.publisher_heartbeat SET last_seen_at = now(), host_name = %s WHERE id = 1", (f"{os.environ.get('COMPUTERNAME', '')} · {VERSION}",))
 
 
 def command_check() -> int:
@@ -265,8 +271,106 @@ def publish(conn: psycopg.Connection, task: dict) -> None:
     if returncode != 0:
         fail(conn, task, last_lines(output) or "发布程序异常退出")
         return
-    conn.execute("UPDATE leadgen.publish_tasks SET status = 'published', published_at = now(), error_message = NULL, updated_at = now() WHERE id = %s", (task["id"],))
+    conn.execute("UPDATE leadgen.publish_tasks SET status = 'published', published_at = now(), error_message = NULL, error_screenshot = NULL, updated_at = now() WHERE id = %s", (task["id"],))
     print(f"已发布：{task['topic']}（{PLATFORM_LABEL[task['platform']]}，{task['account_name']}）")
+    # 马上读一遍，把帖子链接补上；读不到不算发布失败，下一次定时检查会再补。
+    try:
+        time.sleep(8)
+        print(sync_account(conn, {"id": task["account_id"], "platform": task["platform"], "account_name": task["account_name"]}))
+    except Exception as error:
+        print(f"帖子链接暂时没读到：{error}")
+
+
+def clean_link(link: str) -> str:
+    """分享链接后面一长串追踪参数不要。"""
+    return link.split("?")[0] if link else link
+
+
+def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "scheduled") -> str:
+    """读一遍这个账号：给刚发布的内容补上帖子链接；把我们发布的帖子下的新评论收进互动收件箱。
+    只读我们自己通过系统发布的帖子，账号上原有的其他作品不碰。返回一句结果说明。"""
+    if account["platform"] != "douyin":
+        return f"{PLATFORM_LABEL[account['platform']]}还没有接入读取"
+    linked = conn.execute(
+        "SELECT id, platform_post_id, title, post_url FROM leadgen.publish_tasks WHERE account_id = %s AND platform_post_id IS NOT NULL", (account["id"],)).fetchall()
+    unlinked = conn.execute(
+        """SELECT id, title FROM leadgen.publish_tasks WHERE account_id = %s AND status = 'published' AND platform_post_id IS NULL
+           ORDER BY published_at DESC""", (account["id"],)).fetchall()
+    data = asyncio.run(read_douyin(account["id"], {row["platform_post_id"] for row in linked}))
+    if not data["logged_in"]:
+        conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
+        return "登录已过期，请重新扫码"
+
+    # 平台上的作品标题是“标题 + 正文”的开头。按标题开头去对，已经对上的作品不重复用。
+    taken = {row["platform_post_id"] for row in linked}
+    newly_linked = 0
+    for task in unlinked:
+        match = next((item for item in data["items"] if item["item_id"] not in taken and task["title"] and item["title"].startswith(task["title"][:12])), None)
+        if match:
+            taken.add(match["item_id"])
+            newly_linked += 1
+            conn.execute("UPDATE leadgen.publish_tasks SET platform_post_id = %s, post_url = %s, updated_at = now() WHERE id = %s",
+                         (match["item_id"], clean_link(match["link"]), task["id"]))
+    if newly_linked:
+        # 刚对上的帖子这一轮还没取评论，马上再读一次。
+        linked = conn.execute(
+            "SELECT id, platform_post_id, title, post_url FROM leadgen.publish_tasks WHERE account_id = %s AND platform_post_id IS NOT NULL", (account["id"],)).fetchall()
+        data = asyncio.run(read_douyin(account["id"], {row["platform_post_id"] for row in linked}))
+
+    by_post = {row["platform_post_id"]: row for row in linked}
+    new_messages = 0
+    for item in data["items"]:
+        task = by_post.get(item["item_id"])
+        if not task:
+            continue
+        conn.execute("UPDATE leadgen.publish_tasks SET stat_comments = %s, stats_at = now() WHERE id = %s", (item["comment_count"], task["id"]))
+        for comment in data["comments"].get(item["item_id"], []):
+            inserted = conn.execute(
+                """INSERT INTO leadgen.interaction_messages
+                     (platform, kind, platform_message_id, account_id, publish_task_id, post_title, post_url,
+                      sender_name, sender_platform_id, content, sent_at, source)
+                   VALUES ('douyin', 'comment', %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reader')
+                   ON CONFLICT (platform, platform_message_id) DO NOTHING RETURNING id""",
+                (comment["comment_id"], account["id"], task["id"], task["title"], task["post_url"],
+                 comment["sender_name"], comment["sender_id"], comment["text"], comment["sent_at"])).fetchone()
+            new_messages += 1 if inserted else 0
+    note = f"读了 {len(by_post)} 条我们发布的帖子，新评论 {new_messages} 条" + (f"，补上帖子链接 {newly_linked} 条" if newly_linked else "")
+    if data.get("errors"):
+        note += f"；{data['errors'][0]}"
+    return note
+
+
+def process_inbox_checks(conn: psycopg.Connection) -> None:
+    """“立即检查”的请求，加上每小时一次的定时检查（下一次的时间带 0–8 分钟随机偏移，避免固定节奏）。"""
+    accounts = conn.execute(
+        """
+        SELECT a.id, a.platform, a.account_name, a.login_status,
+               (SELECT r.id FROM leadgen.inbox_check_requests r WHERE r.account_id = a.id AND r.status = 'queued' ORDER BY r.created_at LIMIT 1) AS request_id,
+               (a.next_inbox_check_at IS NULL OR a.next_inbox_check_at <= now()) AS due,
+               (a.last_inbox_check_at IS NOT NULL AND a.last_inbox_check_at > now() - make_interval(mins => %s)) AS too_soon
+        FROM leadgen.publish_accounts a
+        WHERE a.purpose = 'publish' AND a.login_status = 'ok' AND a.platform = ANY(%s)
+        """, (MIN_GAP_MINUTES, list(SAU_PLATFORM))).fetchall()
+    for account in accounts:
+        if not (account["request_id"] or account["due"]):
+            continue
+        if account["too_soon"]:
+            if account["request_id"]:
+                conn.execute("UPDATE leadgen.inbox_check_requests SET status = 'failed', error_message = '距上次检查不到 10 分钟，请稍后再试', finished_at = now() WHERE account_id = %s AND status = 'queued'", (account["id"],))
+            continue
+        conn.execute("UPDATE leadgen.inbox_check_requests SET status = 'running' WHERE account_id = %s AND status = 'queued'", (account["id"],))
+        try:
+            note, ok = sync_account(conn, account, "manual" if account["request_id"] else "scheduled"), True
+        except Exception as error:
+            note, ok = f"读取出错：{error}"[:300], False
+        conn.execute(
+            """UPDATE leadgen.publish_accounts SET last_inbox_check_at = now(), last_inbox_check_note = %s,
+                 next_inbox_check_at = now() + interval '1 hour' + make_interval(secs => %s) WHERE id = %s""",
+            (note, random.randint(0, 480), account["id"]))
+        conn.execute(
+            "UPDATE leadgen.inbox_check_requests SET status = %s, error_message = %s, finished_at = now() WHERE account_id = %s AND status = 'running'",
+            ("completed" if ok else "failed", None if ok else note, account["id"]))
+        print(f"{account['account_name']}：{note}")
 
 
 def process_due(conn: psycopg.Connection) -> int:
@@ -298,6 +402,12 @@ def main(argv: list[str]) -> int:
         return command_login(argv[2])
     if command == "check":
         return command_check()
+    if command == "sync":
+        # 只读一遍各账号（补帖子链接、收新评论），不发布任何内容。
+        with connect() as conn:
+            for account in conn.execute("SELECT id, platform, account_name, login_status FROM leadgen.publish_accounts WHERE purpose = 'publish' AND login_status = 'ok'").fetchall():
+                print(f"{account['account_name']}：{sync_account(conn, account)}")
+        return 0
     if command in ("once", "run"):
         with connect() as conn:
             recover_interrupted(conn)
@@ -309,6 +419,7 @@ def main(argv: list[str]) -> int:
                 heartbeat(conn)
                 process_login_requests(conn)
                 process_due(conn)
+                process_inbox_checks(conn)
                 time.sleep(POLL_SECONDS)
     print(__doc__)
     return 2

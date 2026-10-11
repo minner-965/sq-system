@@ -414,6 +414,37 @@ export function convertToLead(pool, { messageId, user }) {
   });
 }
 
+const MIN_CHECK_GAP_MINUTES = 10;
+
+/** When each logged-in publishing account was last read for comments, and whether a check is waiting. */
+export async function checkStatus(pool) {
+  const { rows } = await pool.query(`
+    SELECT a.id, a.platform, a.account_name, a.last_inbox_check_at, a.last_inbox_check_note, a.next_inbox_check_at,
+           EXISTS (SELECT 1 FROM leadgen.inbox_check_requests r WHERE r.account_id = a.id AND r.status IN ('queued', 'running')) AS checking,
+           (SELECT r.error_message FROM leadgen.inbox_check_requests r WHERE r.account_id = a.id ORDER BY r.created_at DESC LIMIT 1) AS last_request_error
+    FROM leadgen.publish_accounts a WHERE a.purpose = 'publish' AND a.login_status = 'ok' ORDER BY a.created_at`);
+  const { rows: [beat] } = await pool.query(`SELECT last_seen_at > now() - interval '90 seconds' AS online FROM leadgen.publisher_heartbeat WHERE id = 1`);
+  return { publisher_online: Boolean(beat?.online), accounts: rows.map(row => ({ ...row, platform_name: PLATFORM_NAME[row.platform] })) };
+}
+
+/** "Check now": asks the publisher to read every logged-in account, at most once per ten minutes each. */
+export async function requestCheck(pool, { user }) {
+  const status = await checkStatus(pool);
+  if (!status.publisher_online) throw fail(409, 'PUBLISHER_OFFLINE', '发布程序没有在运行，暂时读不了。请在这台电脑上双击 publisher 文件夹里的 start-publisher.cmd');
+  if (!status.accounts.length) throw fail(409, 'NO_ACCOUNT_LOGGED_IN', '还没有登录好的发布账号');
+  const { rowCount } = await pool.query(`
+    INSERT INTO leadgen.inbox_check_requests (account_id, trigger, requested_by)
+    SELECT a.id, 'manual', $1 FROM leadgen.publish_accounts a
+    WHERE a.purpose = 'publish' AND a.login_status = 'ok'
+      AND (a.last_inbox_check_at IS NULL OR a.last_inbox_check_at < now() - make_interval(mins => $2))
+      AND NOT EXISTS (SELECT 1 FROM leadgen.inbox_check_requests r WHERE r.account_id = a.id AND r.status IN ('queued', 'running'))`,
+  [user.id, MIN_CHECK_GAP_MINUTES]);
+  if (!rowCount && !status.accounts.some(account => account.checking)) {
+    throw fail(409, 'CHECKED_RECENTLY', `刚检查过，同一个账号两次检查至少隔 ${MIN_CHECK_GAP_MINUTES} 分钟`);
+  }
+  return { queued: rowCount };
+}
+
 export async function getInboxSettings(pool) {
   const { rows: [row] } = await pool.query('SELECT intent_keywords, assignee_property, assignee_event, assignee_hotel, assignee_dining FROM leadgen.inbox_settings WHERE id = 1');
   const { rows: users } = await pool.query(`SELECT u.id, u.display_name FROM leadgen.users u JOIN leadgen.roles r ON r.key = u.role_key WHERE u.is_active AND r.can_write ORDER BY u.display_name`);

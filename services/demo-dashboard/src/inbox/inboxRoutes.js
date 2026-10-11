@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  INTENTS, addManualMessage, changeIntent, classifyPending, confirmReply, convertToLead, draftReply, getInboxSettings,
+  INTENTS, addManualMessage, changeIntent, checkStatus, requestCheck, classifyPending, confirmReply, convertToLead, draftReply, getInboxSettings,
   inboxSummary, listInbox, setStatus, updateInboxSettings
 } from './inboxService.js';
 
@@ -43,6 +43,9 @@ export function createInboxRouter({ pool, auth, llm }) {
   router.post('/messages/:messageId/lead', ...write, handle(async (req, res) => {
     res.json(await convertToLead(pool, { messageId: req.params.messageId, user: req.managementUser }));
   }));
+
+  router.get('/check', ...read, handle(async (_req, res) => res.json(await checkStatus(pool))));
+  router.post('/check', ...write, handle(async (req, res) => res.status(202).json(await requestCheck(pool, { user: req.managementUser }))));
 
   router.get('/settings', ...admin, handle(async (_req, res) => res.json(await getInboxSettings(pool))));
   router.put('/settings', ...admin, handle(async (req, res) => res.json(await updateInboxSettings(pool, req.body || {}))));
