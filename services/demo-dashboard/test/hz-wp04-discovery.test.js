@@ -181,3 +181,20 @@ test('evidence must be about now: old events and undated new companies are dropp
     [['project_site', 'https://www.amap.com/place/B0ABC']]);
   assert.deepEqual(nameSignals({ name: '广州某某科技有限公司', sourceRef: 'B0ABD' }), []);
 });
+
+test('a published licence is matched to a map listing by the distinctive part of the name', async () => {
+  const { coreName, sameBusiness, searchName } = await import('../src/discovery/permits.js');
+  assert.equal(searchName('广州市黄埔区星记餐饮店(个体工商户)'), '星记餐饮店');
+  assert.equal(searchName('广州黄埔龙湖街火焰旺潮烧烤档(个体工商户)'), '火焰旺潮烧烤档');
+  assert.equal(coreName('广东乐佳乐餐饮服务有限公司'), '乐佳乐');
+  assert.equal(coreName('广州国康医药连锁有限公司萝岗分店'), '国康');
+  assert.ok(sameBusiness('广州市黄埔区星记餐饮店(个体工商户)', '星记餐饮'));
+  assert.ok(sameBusiness('广东乐佳乐餐饮服务有限公司', '乐佳乐餐饮(黄埔店)'));
+  assert.ok(!sameBusiness('广州市黄埔区星记餐饮店(个体工商户)', '阿星美食'));
+  // One character apart is usually a different business.
+  assert.ok(!sameBusiness('广东乐佳乐餐饮服务有限公司', '乐佳餐饮'));
+  assert.ok(sameBusiness('广州市黄埔区早来包子店', '早来包子'));
+  const service = readFileSync(path.join(appRoot, 'src', 'discovery', 'signals.js'), 'utf8');
+  // Re-checking a company on the web must not wipe evidence that came from the government disclosure.
+  assert.match(service, /DELETE FROM leadgen\.company_signals WHERE company_id = \$1 AND origin <> 'permit'/);
+});

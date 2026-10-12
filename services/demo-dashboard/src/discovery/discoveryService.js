@@ -1,6 +1,7 @@
 import { AMAP_MAX_PAGES, AMAP_PAGE_SIZE } from './providers/amap.js';
 import { RULE_VERSION, scoreCompany } from './scoring.js';
 import { SIGNAL_TYPES, STRENGTH, demandLevel, runSignalChecks, strengthOf } from './signals.js';
+import { attachPermitSignals } from './permits.js';
 
 const STALE_RUN_MINUTES = 30;
 const OWN_PROJECT_NAME = /恒兆/;
@@ -87,7 +88,7 @@ export function planQueries(settings) {
   return Array.from({ length: AMAP_MAX_PAGES }, (_unused, index) => queries.map(query => ({ ...query, page: index + 1 }))).flat();
 }
 
-async function saveCompany(client, company) {
+export async function saveCompany(client, company) {
   const { rows: [row] } = await client.query(`
     INSERT INTO leadgen.companies
       (company_name, city, address, longitude, latitude, industry, company_type, phone, distance_m,
@@ -190,6 +191,9 @@ export async function runDiscovery(pool, { runId, provider, search = null, llm =
       log(`${summary}：${result.companies.length} 条`);
     }
     await archiveProjectTenants(pool, settings);
+    // 政府公示里新办许可的商家：定位到地图上，在范围内的收进来并记下依据。
+    const permits = await attachPermitSignals(pool, { provider, settings, saveCompany, rescore: rescoreCompany, isExcluded: excluded, runId, log });
+    if (permits.checked) log(`许可公示：看了 ${permits.checked} 条，对上 ${permits.matched} 家`);
     if (search && llm) {
       const signals = await runSignalChecks(pool, { search, llm, limit: settings.signal_checks_per_run, runId, rescore: rescoreCompany, log });
       totals.signals_checked = signals.checked;
