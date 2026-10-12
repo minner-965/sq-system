@@ -38,7 +38,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v18"
+VERSION = "v19"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -501,8 +501,14 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
         conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
         return "登录已过期，请重新扫码"
     tasks = conn.execute(
-        "SELECT id, title, platform_post_id FROM leadgen.publish_tasks WHERE account_id = %s AND status = 'published' ORDER BY published_at DESC", (account["id"],)).fetchall()
+        """SELECT t.id, t.material_id, t.title, t.platform_post_id, t.confirmed_by, m.topic, to_char(t.published_at, 'YYYY-MM-DD HH24:MI') AS published_text
+           FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
+           WHERE t.account_id = %s AND t.status = 'published' ORDER BY t.published_at DESC""", (account["id"],)).fetchall()
     taken = {task["platform_post_id"] for task in tasks if task["platform_post_id"]}
+    # 这一页里最早的一条非置顶笔记的时间：比它晚发的笔记都应该在这一页里。
+    page_times = [item["time"] for item in data["items"] if item["time"] and not item["sticky"]]
+    page_floor = min(page_times) if page_times else None
+    missing = 0
     by_id = {item["item_id"]: item for item in data["items"]}
     linked = updated = 0
     for task in tasks:
@@ -514,6 +520,14 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
                 taken.add(item["item_id"])
                 linked += 1
         if not item:
+            # 之前对上过、按时间又该在这一页里，却找不到了：多半是被删或被平台下架。提醒一次，由人去看；系统不改它的状态。
+            if task["platform_post_id"] and page_floor and task["published_text"] and task["published_text"] > page_floor:
+                missing += 1
+                link = f"/publishing.html?id={task['material_id']}"
+                title = "发出去的小红书笔记在平台上找不到了"
+                if not conn.execute("SELECT 1 FROM leadgen.notifications WHERE title = %s AND link = %s", (title, link)).fetchone():
+                    notify(conn, title, f"“{task['topic']}”之前已发出，现在小红书后台里没有这条了。如果是自己删的，请在“内容发布”里标记“已在平台上删除”；不是的话请到手机上看有没有下架提醒。",
+                           link, task["confirmed_by"])
             continue
         updated += 1
         conn.execute(
@@ -521,6 +535,8 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
                  stat_favorites = %s, stat_shares = %s, metrics_at = now(), stats_at = now(), updated_at = now() WHERE id = %s""",
             (item["item_id"], item["link"], item["views"], item["likes"], item["comments"], item["favorites"], item["shares"], task["id"]))
     note = f"读了 {updated} 条我们发布的笔记的数据" + (f"，补上链接 {linked} 条" if linked else "")
+    if missing:
+        note += f"，有 {missing} 条在平台上找不到了"
     return f"{note}；评论和私信请在手机上查看"
 
 

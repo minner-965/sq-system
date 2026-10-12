@@ -58,6 +58,9 @@ async def read_xiaohongshu_notes(account_id) -> dict:
                         "comments": int(note.get("comments_count") or 0),
                         "favorites": int(note.get("collected_count") or 0),
                         "shares": int(note.get("shared_count") or 0),
+                        # 发布时间（“2026-10-11 22:12”）和是否置顶：用来判断“我们发的那条本该排在这一页里”。
+                        "time": str(note.get("time") or ""),
+                        "sticky": str(note.get("sticky")) == "True",
                     })
                 next_page = (data.get("data") or {}).get("page")
                 if not notes or next_page in (None, -1) or number == MAX_NOTE_PAGES - 1:
