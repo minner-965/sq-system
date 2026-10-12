@@ -157,6 +157,7 @@ function taskCard(task) {
       ${task.status === 'confirmed' && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-withdraw>撤回</button></div>' : ''}
       ${task.status === 'removed' ? `<div class="notice">这条已于 ${dateTime(task.removed_at)} 标记为“已在平台删除”${task.removed_note ? `：${escapeHtml(task.removed_note)}` : ''}</div>` : ''}
       ${task.status === 'published' && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-removed>已在平台上删除</button></div>' : ''}
+      ${task.status === 'removed' && canWrite && task.can_repost ? '<div class="form-actions"><button class="btn" type="button" data-repost>重新发一条</button></div>' : ''}
       ${task.has_body && canWrite ? '<div class="form-actions"><button class="btn" type="button" data-qr>留资二维码</button></div>' : ''}
       ${task.version_count > 1 ? `<details class="why versions"><summary>历史版本（${task.version_count}）</summary><div data-versions></div></details>` : ''}
     </div></section>`;
@@ -183,7 +184,14 @@ async function loadDetail() {
       : `<video src="${escapeHtml(file.url)}" controls preload="metadata"></video>`)).join('');
     const fact = (label, value) => (value ? `<div><span>${label}</span><b>${escapeHtml(value)}</b></div>` : '');
     byId('facts').innerHTML = fact('关联房源', data.property && `${data.property.label}（${data.property.floor} 层，${data.property.area_sqm} ㎡）`) + fact('补充说明', data.note);
+    // 没被删除的发布任务，每个平台只能有一条：没有的平台可以加，删掉的可以重发。
+    const live = new Set(data.tasks.filter(task => task.status !== 'removed').map(task => task.platform));
+    const offered = new Set();
+    data.tasks.forEach(task => { task.can_repost = task.status === 'removed' && !live.has(task.platform) && !offered.has(task.platform); if (task.can_repost) offered.add(task.platform); });
     byId('tasks').innerHTML = data.tasks.map(taskCard).join('');
+    const missing = config.platforms.filter(platform => !data.tasks.some(task => task.platform === platform.key));
+    byId('add-platforms').innerHTML = missing.map(platform => `<button class="btn" type="button" data-add-platform="${platform.key}">${escapeHtml(platform.label)}</button>`).join(' ');
+    byId('add-platform-bar').hidden = !canWrite || !missing.length;
     byId('model-note').textContent = config.model_ready ? '文案只使用主题、补充说明和房源资料里的内容，发布前请逐条核对。' : '还没有配置大模型，暂时只能手写文案。';
     const generateAll = byId('generate-all');
     if (generateAll) generateAll.hidden = !config.model_ready || !data.tasks.some(task => ['draft', 'failed', 'withdrawn'].includes(task.status));
@@ -212,7 +220,20 @@ async function generate(button, platform) {
   }
 }
 
+async function addPlatform(platform, button) {
+  button.disabled = true;
+  try {
+    const result = await send(`/api/publishing/materials/${encodeURIComponent(materialId)}/platforms`, 'POST', { platform });
+    await loadDetail();
+    notice(result.copied ? '已开好新的一条，文案沿用删掉的那一条，核对后确认发布。' : '已加上，生成或手写文案后确认发布。');
+  } catch (error) { showError(error.message); button.disabled = false; }
+}
+
 function setupDetail() {
+  byId('add-platforms').addEventListener('click', event => {
+    const button = event.target.closest('[data-add-platform]');
+    if (button) addPlatform(button.dataset.addPlatform, button);
+  });
   byId('generate-all')?.addEventListener('click', event => generate(event.target, null));
   byId('tasks').addEventListener('input', event => { if (event.target.dataset.max) updateCounts(event.target.closest('.field')); });
   byId('tasks').addEventListener('click', async event => {
@@ -231,6 +252,10 @@ function setupDetail() {
         byId('qr-download').download = `留资二维码-${form.platform_name}-${form.code}.svg`;
         byId('qr').showModal();
       } catch (error) { notice(error.message); }
+      return;
+    }
+    if (event.target.closest('[data-repost]')) {
+      await addPlatform(card.dataset.platform, event.target);
       return;
     }
     if (event.target.closest('[data-removed]')) {
