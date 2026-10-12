@@ -107,6 +107,21 @@ export async function createMaterial(pool, { user, body, files, mediaDir }) {
   }
 }
 
+/** Opens one more draft for a material that is already in the system, so the same files can go to another platform. */
+export async function addPlatform(pool, { materialId, platform }) {
+  requireUuid(materialId, 'MATERIAL_NOT_FOUND');
+  if (!PLATFORMS[platform]) throw fail(400, 'MATERIAL_PLATFORM_INVALID', '目标平台不正确');
+  return inTransaction(pool, async client => {
+    const { rows: [material] } = await client.query('SELECT id FROM leadgen.materials WHERE id = $1 FOR UPDATE', [materialId]);
+    if (!material) throw fail(404, 'MATERIAL_NOT_FOUND', '没有找到这条素材');
+    const { rowCount } = await client.query('SELECT 1 FROM leadgen.publish_tasks WHERE material_id = $1 AND platform = $2', [materialId, platform]);
+    if (rowCount) throw fail(409, 'PLATFORM_ALREADY_ADDED', `这条素材已经有${PLATFORMS[platform].label}的内容了`);
+    const { rows: [task] } = await client.query('INSERT INTO leadgen.publish_tasks (material_id, platform) VALUES ($1, $2) RETURNING id', [materialId, platform]);
+    await client.query('UPDATE leadgen.materials SET target_platforms = array_append(target_platforms, $2) WHERE id = $1 AND NOT ($2 = ANY(target_platforms))', [materialId, platform]);
+    return { task_id: task.id, platform };
+  });
+}
+
 export async function listMaterials(pool, { limit = 50, offset = 0, mine = null } = {}) {
   const { rows } = await pool.query(`
     SELECT m.id, m.topic, m.content_type, m.created_at, u.display_name AS created_by_name,

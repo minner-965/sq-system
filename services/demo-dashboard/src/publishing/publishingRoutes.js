@@ -3,7 +3,7 @@ import multer from 'multer';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { CONTENT_TYPES, PLATFORMS } from './copywriter.js';
-import {
+import { addPlatform,
   MAX_IMAGES, MAX_VIDEOS, addAccount, calendarTasks, confirmTask, requestLogin, createMaterial, generateDrafts, getMaterial, listAccounts, listMaterials,
   listVersions, markRemoved, updateAccount, updateDraft, withdrawTask
 } from './publishingService.js';
@@ -45,6 +45,9 @@ export function createPublishingRouter({ pool, auth, llm, mediaDir }) {
     res.status(201).json(await createMaterial(pool, { user: req.managementUser, body: req.body, files: req.files || [], mediaDir }));
   }));
   router.get('/materials/:materialId', ...read, handle(async (req, res) => res.json(await getMaterial(pool, req.params.materialId))));
+  router.post('/materials/:materialId/platforms', ...write, handle(async (req, res) => {
+    res.status(201).json(await addPlatform(pool, { materialId: req.params.materialId, platform: String(req.body?.platform || '') }));
+  }));
   router.post('/materials/:materialId/drafts', ...write, handle(async (req, res) => {
     res.json(await generateDrafts(pool, { materialId: req.params.materialId, platform: req.body?.platform || null, user: req.managementUser, llm }));
   }));
