@@ -70,6 +70,16 @@
         <div class="more" id="more" hidden><button class="btn" type="button" id="load-more">再看 50 家</button></div>
       </div>
 
+      <section class="card" id="tenders" style="margin-top:16px">
+        <div class="ph"><div><h3>黄埔新中标的工程</h3><p id="tenders-sub">中标的施工单位要进场设项目部，住宿、用餐、临时办公都要解决</p></div>
+          <div class="evidence-bar" role="group" aria-label="工程类型" style="padding:0">
+            <button type="button" data-tender-kind="construction" aria-pressed="true">只看施工<i id="tk-construction"></i></button>
+            <button type="button" data-tender-kind="all" aria-pressed="false">全部<i id="tk-all"></i></button>
+          </div>
+        </div>
+        <div id="tender-list"><div class="state">正在加载</div></div>
+      </section>
+
       <p class="foot-note" id="usage">&nbsp;</p>
     </main>
   </div>

@@ -113,8 +113,8 @@ async function storeSignals(pool, companyId, signals, rescore) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // 政府公示来的依据不是这次搜索得到的，留着。
-    await client.query(`DELETE FROM leadgen.company_signals WHERE company_id = $1 AND origin <> 'permit'`, [companyId]);
+    // 政府公示和中标公告来的依据不是这次搜索得到的，留着。
+    await client.query(`DELETE FROM leadgen.company_signals WHERE company_id = $1 AND origin IN ('web', 'name')`, [companyId]);
     for (const signal of signals) {
       await client.query(`
         INSERT INTO leadgen.company_signals (company_id, signal_type, evidence, source_title, source_url, source_date, openings, origin)

@@ -117,11 +117,58 @@ async function loadSettings() {
   byId('settings').hidden = false;
 }
 
+const tenderState = { kind: 'construction' };
+const wan = amount => (amount == null ? '—' : `${Math.round(amount / 10000).toLocaleString('zh-CN')} 万`);
+
+async function loadTenders() {
+  const data = await api(`/api/discovery/tenders?kind=${tenderState.kind}`);
+  byId('tk-construction').textContent = ` ${data.counts.open_construction}`;
+  byId('tk-all').textContent = ` ${data.counts.open_all}`;
+  byId('tenders-sub').textContent = `中标的施工单位要进场设项目部，住宿、用餐、临时办公都要解决${data.checked_at ? ` · ${dateTime(data.checked_at)} 更新` : ''}`;
+  byId('tender-list').innerHTML = data.items.length ? `<table class="cands">
+    <thead><tr><th scope="col">工程</th><th scope="col">中标单位</th><th scope="col" class="num">中标金额</th><th scope="col">公告日期</th><th scope="col"><span class="sr">操作</span></th></tr></thead>
+    <tbody>${data.items.map(item => `<tr>
+      <td><div class="co">${escapeHtml(item.project)}</div><div class="meta">${escapeHtml(item.work_kind_name)}${item.project_type ? ` · ${escapeHtml(item.project_type)}` : ''}${item.owner_name ? ` · 业主 ${escapeHtml(item.owner_name)}` : ''}
+        · <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">看公告</a></div></td>
+      <td>${escapeHtml(item.winner_name)}</td>
+      <td class="num">${wan(item.amount)}</td>
+      <td class="num">${item.published_at ? new Date(item.published_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '—'}</td>
+      <td class="acts">${shell.user.can_write ? `<button class="btn sm pri" type="button" data-tender="follow" data-id="${item.id}">转入跟进</button><button class="btn sm" type="button" data-tender="dismiss" data-id="${item.id}">不合适</button>` : ''}</td>
+    </tr>`).join('')}</tbody></table>`
+    : `<div class="state"><b>没有待看的中标工程</b>${escapeHtml(data.note || '每 6 小时看一次黄埔区最新的中标结果')}</div>`;
+}
+
+byId('tenders').addEventListener('click', async event => {
+  const kind = event.target.closest('[data-tender-kind]');
+  if (kind && kind.dataset.tenderKind !== tenderState.kind) {
+    tenderState.kind = kind.dataset.tenderKind;
+    document.querySelectorAll('[data-tender-kind]').forEach(item => item.setAttribute('aria-pressed', String(item === kind)));
+    loadTenders().catch(error => notice(error.message));
+    return;
+  }
+  const button = event.target.closest('[data-tender]');
+  if (!button) return;
+  button.disabled = true;
+  try {
+    if (button.dataset.tender === 'follow') {
+      const result = await post(`/api/discovery/tenders/${button.dataset.id}/follow`, {});
+      notice(`已转入跟进（${result.sectors.map(key => shell.sectorName(key)).join('、')}），可以在“招商客户”里找到。`);
+    } else {
+      await post(`/api/discovery/tenders/${button.dataset.id}/dismiss`, {});
+    }
+    await loadTenders();
+  } catch (error) {
+    notice(error.message);
+    button.disabled = false;
+  }
+});
+
 async function refresh() {
   byId('error').hidden = true;
   try {
     await loadStatus();
     await loadList();
+    await loadTenders();
   } catch (error) {
     byId('error-text').textContent = `企业发现没有加载出来：${error.message}`;
     byId('error').hidden = false;
