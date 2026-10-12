@@ -3,13 +3,13 @@
 
 import { SIGNAL_TYPES } from './signals.js';
 
-export const RULE_VERSION = 'hz-2026.10-2';
+export const RULE_VERSION = 'hz-2026.10-3';
 const SIGNAL_MAX = 30;
 
-/** 需求信号：招聘 10、扩张 15、新设 15、迁址 20，合计封顶 30。出处是搜到的网页。 */
+/** 需求信号：在找场地 25、迁址 20、新设 15、扩张 15、本地项目进场 15、招聘 10，合计封顶 30。出处是搜到的网页。 */
 function signalItem(signals, checked) {
   if (!signals.length) {
-    return { item: '需求信号', points: 0, max: SIGNAL_MAX, reason: checked ? '近一年没有查到招聘、扩张、迁址、新设方面的公开信息' : '还没有查过', source: null };
+    return { item: '需求信号', points: 0, max: SIGNAL_MAX, reason: checked ? '近一年没有查到找场地、迁址、新设、扩张、本地项目、招聘方面的公开信息' : '还没有查过', source: null };
   }
   const strongest = [...signals].sort((a, b) => SIGNAL_TYPES[b.type].points - SIGNAL_TYPES[a.type].points)[0];
   return {

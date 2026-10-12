@@ -1,6 +1,6 @@
 import { AMAP_MAX_PAGES, AMAP_PAGE_SIZE } from './providers/amap.js';
 import { RULE_VERSION, scoreCompany } from './scoring.js';
-import { runSignalChecks } from './signals.js';
+import { SIGNAL_TYPES, STRENGTH, demandLevel, runSignalChecks, strengthOf } from './signals.js';
 
 const STALE_RUN_MINUTES = 30;
 const OWN_PROJECT_NAME = /恒兆/;
@@ -110,7 +110,7 @@ export async function rescoreCompany(client, companyId) {
   const { rows: [stored] } = await client.query(`
     SELECT company_name, company_type, distance_m, phone, source_ref, signals_checked_at FROM leadgen.companies WHERE id = $1`, [companyId]);
   const { rows: signals } = await client.query(`
-    SELECT signal_type AS type, evidence, source_title AS "sourceTitle", source_url AS "sourceUrl"
+    SELECT signal_type AS type, evidence, openings, source_title AS "sourceTitle", source_url AS "sourceUrl"
     FROM leadgen.company_signals WHERE company_id = $1 ORDER BY signal_type`, [companyId]);
   const company = {
     name: stored.company_name, categoryCode: stored.company_type, distanceM: stored.distance_m, phone: stored.phone,
@@ -205,30 +205,64 @@ export async function runDiscovery(pool, { runId, provider, search = null, llm =
 
 const CANDIDATE_STATUSES = new Set(['pending', 'approved', 'rejected']);
 
-export async function listCandidates(pool, { sectors, status = 'pending', search, limit = 50, offset = 0 }) {
+const EVIDENCE_FILTERS = new Set(['any', 'has', 'strong', 'none', 'unchecked']);
+// 每家企业的依据强弱，用数字排序：3 强、2 中、1 弱、0 查过没有、-1 还没查。
+const LEVEL_RANK = `COALESCE((
+    SELECT max(CASE WHEN g.signal_type IN ('seeking_space', 'relocation') THEN 3
+                    WHEN g.signal_type IN ('new_setup', 'expansion', 'project_site') OR (g.signal_type = 'hiring' AND g.openings >= 10) THEN 2
+                    ELSE 1 END)
+    FROM leadgen.company_signals g WHERE g.company_id = c.id), CASE WHEN c.signals_checked_at IS NULL THEN -1 ELSE 0 END)`;
+
+/** Presents stored evidence for the page: what it is, how strong, when and where it was seen. */
+export function presentSignals(signals, checkedAt) {
+  const items = signals.map(signal => {
+    const strength = strengthOf(signal);
+    return {
+      type: signal.type, type_name: SIGNAL_TYPES[signal.type].label, strength, strength_name: STRENGTH[strength].label,
+      evidence: signal.evidence, source_title: signal.source_title, source_url: signal.source_url, source_date: signal.source_date, openings: signal.openings
+    };
+  }).sort((x, y) => STRENGTH[y.strength].rank - STRENGTH[x.strength].rank);
+  const level = demandLevel(signals, checkedAt != null);
+  return { level, level_name: STRENGTH[level]?.label ?? null, level_meaning: STRENGTH[level]?.meaning ?? null, checked_at: checkedAt, items };
+}
+
+export async function listCandidates(pool, { sectors, status = 'pending', search, evidence = 'any', limit = 50, offset = 0 }) {
   if (!CANDIDATE_STATUSES.has(status)) throw Object.assign(new Error('状态不正确'), { code: 'CANDIDATE_STATUS_INVALID', status: 400 });
+  if (!EVIDENCE_FILTERS.has(evidence)) throw Object.assign(new Error('筛选条件不正确'), { code: 'EVIDENCE_FILTER_INVALID', status: 400 });
   const params = [sectors, status, search ? `%${search}%` : null];
-  const where = `c.lifecycle_status = 'ACTIVE' AND k.sector_key = ANY($1) AND k.status = $2 AND ($3::text IS NULL OR c.company_name ILIKE $3 OR c.address ILIKE $3)`;
-  const [{ rows }, { rows: [count] }, { rows: tabs }] = await Promise.all([
+  const base = `c.lifecycle_status = 'ACTIVE' AND k.sector_key = ANY($1) AND k.status = $2 AND ($3::text IS NULL OR c.company_name ILIKE $3 OR c.address ILIKE $3)`;
+  const byEvidence = { any: '', has: ` AND ${LEVEL_RANK} >= 1`, strong: ` AND ${LEVEL_RANK} >= 2`, none: ` AND ${LEVEL_RANK} = 0`, unchecked: ` AND ${LEVEL_RANK} = -1` }[evidence];
+  const where = base + byEvidence;
+  const [{ rows }, { rows: [count] }, { rows: tabs }, { rows: [levels] }] = await Promise.all([
     pool.query(`
       SELECT k.id, k.sector_key, s.name AS sector_name, k.score, k.score_items, k.notices, k.status, k.reviewed_at,
              k.reject_reason, c.id AS company_id, c.company_name, c.address, c.industry, c.phone, c.distance_m,
-             c.source, c.source_ref, c.created_at AS discovered_at
+             c.source, c.source_ref, c.created_at AS discovered_at, c.signals_checked_at,
+             COALESCE((SELECT json_agg(json_build_object('type', g.signal_type, 'evidence', g.evidence, 'source_title', g.source_title,
+                        'source_url', g.source_url, 'source_date', g.source_date, 'openings', g.openings))
+                       FROM leadgen.company_signals g WHERE g.company_id = c.id), '[]'::json) AS signals
       FROM leadgen.company_sector_candidates k
       JOIN leadgen.companies c ON c.id = k.company_id
       JOIN leadgen.sectors s ON s.key = k.sector_key
       WHERE ${where}
-      ORDER BY k.score DESC, c.distance_m, c.company_name, k.sector_key
+      ORDER BY ${LEVEL_RANK} DESC, k.score DESC, c.distance_m, c.company_name, k.sector_key
       LIMIT $4 OFFSET $5`, [...params, Math.min(Math.max(Number(limit) || 50, 1), 100), Math.max(Number(offset) || 0, 0)]),
     pool.query(`SELECT count(*)::int AS total FROM leadgen.company_sector_candidates k JOIN leadgen.companies c ON c.id = k.company_id WHERE ${where}`, params),
     pool.query(`
       SELECT k.status, count(*)::int AS n FROM leadgen.company_sector_candidates k JOIN leadgen.companies c ON c.id = k.company_id
-      WHERE c.lifecycle_status = 'ACTIVE' AND k.sector_key = ANY($1) GROUP BY k.status`, [sectors])
+      WHERE c.lifecycle_status = 'ACTIVE' AND k.sector_key = ANY($1) GROUP BY k.status`, [sectors]),
+    pool.query(`
+      SELECT count(*) FILTER (WHERE rank >= 1)::int AS has, count(*) FILTER (WHERE rank >= 2)::int AS strong,
+             count(*) FILTER (WHERE rank = 0)::int AS none, count(*) FILTER (WHERE rank = -1)::int AS unchecked, count(*)::int AS any
+      FROM (SELECT ${LEVEL_RANK} AS rank FROM leadgen.company_sector_candidates k JOIN leadgen.companies c ON c.id = k.company_id WHERE ${base}) ranked`, params)
   ]);
   return {
     total: count.total,
     counts: Object.fromEntries(['pending', 'approved', 'rejected'].map(key => [key, tabs.find(row => row.status === key)?.n ?? 0])),
-    items: rows.map(row => ({ ...row, source_url: row.source === 'amap' ? `https://www.amap.com/place/${row.source_ref}` : null }))
+    evidence_counts: levels,
+    items: rows.map(({ signals, signals_checked_at: checkedAt, ...row }) => ({
+      ...row, source_url: row.source === 'amap' ? `https://www.amap.com/place/${row.source_ref}` : null, demand: presentSignals(signals, checkedAt)
+    }))
   };
 }
 

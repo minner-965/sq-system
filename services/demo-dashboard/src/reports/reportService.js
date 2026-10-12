@@ -139,12 +139,41 @@ async function workload(pool, period, sectors, user) {
   return rows.map(row => ({ ...row, follow_ups: row.calls + row.wechats + row.visits + row.viewings + row.notes }));
 }
 
+/**
+ * How well each level of evidence held up once someone actually got in touch: for customers whose contact result was
+ * recorded in the period, what the company's evidence was and what the person on the phone said.
+ */
+async function evidenceAccuracy(pool, period, sectors) {
+  const { rows } = await pool.query(`
+    SELECT CASE COALESCE((
+             SELECT max(CASE WHEN g.signal_type IN ('seeking_space', 'relocation') THEN 3
+                             WHEN g.signal_type IN ('new_setup', 'expansion', 'project_site') OR (g.signal_type = 'hiring' AND g.openings >= 10) THEN 2
+                             ELSE 1 END)
+             FROM leadgen.company_signals g WHERE g.company_id = t.company_id), CASE WHEN c.data_origin = 'map_poi' THEN 0 ELSE -1 END)
+           WHEN 3 THEN 'strong' WHEN 2 THEN 'medium' WHEN 1 THEN 'weak' WHEN 0 THEN 'none' ELSE 'inbound' END AS level,
+           count(*)::int AS checked,
+           count(*) FILTER (WHERE t.demand_check = 'confirmed')::int AS confirmed,
+           count(*) FILTER (WHERE t.demand_check = 'later')::int AS later,
+           count(*) FILTER (WHERE t.demand_check = 'none')::int AS none,
+           count(*) FILTER (WHERE t.demand_check = 'unreachable')::int AS unreachable
+    FROM leadgen.company_sector_tracks t JOIN leadgen.companies c ON c.id = t.company_id
+    WHERE t.sector_key = ANY($3) AND t.demand_check IS NOT NULL AND ${within('t.demand_checked_at')}
+    GROUP BY 1`, [period.from, period.to, sectors]);
+  const names = { strong: '依据强', medium: '依据中', weak: '依据弱', none: '没有依据', inbound: '对方主动找来的' };
+  return Object.entries(names).map(([key, name]) => {
+    const row = rows.find(item => item.level === key) || { checked: 0, confirmed: 0, later: 0, none: 0, unreachable: 0 };
+    const reached = row.checked - row.unreachable;
+    // 联系上的里面，确有需求的比例；一个都没联系上就不算。
+    return { key, name, ...row, level: undefined, hit_rate: reached ? Math.round((row.confirmed / reached) * 1000) / 10 : null };
+  });
+}
+
 export async function getReport(pool, { user, sectors, query }) {
   const period = parsePeriod(query);
-  const [funnelData, channelData, people] = await Promise.all([
-    funnel(pool, period, sectors), channels(pool, period), workload(pool, period, sectors, user)
+  const [funnelData, channelData, people, accuracy] = await Promise.all([
+    funnel(pool, period, sectors), channels(pool, period), workload(pool, period, sectors, user), evidenceAccuracy(pool, period, sectors)
   ]);
-  return { period, funnel: funnelData, channels: channelData, workload: people, own_row_only: user.role === 'LEASING' };
+  return { period, funnel: funnelData, channels: channelData, workload: people, evidence: accuracy, own_row_only: user.role === 'LEASING' };
 }
 
 /** The same three tables as one workbook, one sheet each. */
@@ -180,5 +209,9 @@ export async function buildReportWorkbook(report, { sectorName }) {
     ['拜访', row => row.visits, 8], ['看场', row => row.viewings, 8], ['备注', row => row.notes, 8], ['推进阶段', row => row.stage_changes, 10],
     ['新增客户', row => row.new_customers, 10], ['签约', row => row.signed, 8], ['手上在跟', row => row.open_now, 10], ['回复（已发出）', row => row.replies, 14], ['确认发布', row => row.posts, 10]
   ], report.workload, '“手上在跟”是现在的数，其余是这段时间里发生的。');
+  sheet('依据准不准', [
+    ['联系前的依据', row => row.name, 16], ['核实过的客户', row => row.checked, 14], ['确有需求', row => row.confirmed, 10], ['以后可能有', row => row.later, 12],
+    ['没有需求', row => row.none, 10], ['没联系上', row => row.unreachable, 10], ['联系上的里面确有需求', row => rate(row.hit_rate), 22]
+  ], report.evidence, '只统计联系后记了核实结果的客户。数量少的时候比例没有参考意义。');
   return Buffer.from(await book.xlsx.writeBuffer());
 }

@@ -2,8 +2,9 @@ import express from 'express';
 import { visibleSectors } from '../overview/overviewService.js';
 import { PLANNED_PROVIDERS } from './providers/index.js';
 import {
-  createRun, getSettings, listCandidates, recentRuns, reviewCandidate, updateSettings, usageSummary
+  createRun, getSettings, listCandidates, recentRuns, rescoreCompany, reviewCandidate, updateSettings, usageSummary
 } from './discoveryService.js';
+import { checkCompanySignals } from './signals.js';
 
 export function createDiscoveryRouter({ pool, auth, providers, llm, enqueueRun }) {
   const router = express.Router();
@@ -16,7 +17,7 @@ export function createDiscoveryRouter({ pool, auth, providers, llm, enqueueRun }
     const sectors = visibleSectors(req.managementUser, req.query.sector);
     if (!sectors) return res.status(403).json({ error: '当前账号不负责这个板块', code: 'SECTOR_FORBIDDEN' });
     res.json(await listCandidates(pool, {
-      sectors, status: req.query.status || 'pending', search: String(req.query.q || '').trim().slice(0, 50) || null,
+      sectors, status: req.query.status || 'pending', evidence: req.query.evidence || 'any', search: String(req.query.q || '').trim().slice(0, 50) || null,
       limit: req.query.limit, offset: req.query.offset
     }));
   }));
@@ -25,6 +26,11 @@ export function createDiscoveryRouter({ pool, auth, providers, llm, enqueueRun }
     res.json(await reviewCandidate(pool, {
       candidateId: req.params.candidateId, decision: req.body?.decision, reason: req.body?.reason, user: req.managementUser
     }));
+  }));
+
+  // 打电话之前，单独把这一家再查一遍。
+  router.post('/companies/:companyId/signals', ...write, handle(async (req, res) => {
+    res.json(await checkCompanySignals(pool, { companyId: req.params.companyId, search: providers.baiduSearch, llm, rescore: rescoreCompany }));
   }));
 
   router.get('/status', ...read, handle(async (_req, res) => {
