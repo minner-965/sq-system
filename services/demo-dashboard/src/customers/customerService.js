@@ -1,6 +1,8 @@
 // 招商客户：企业在各板块的跟进、跟进记录、房源匹配、底价提示。
 // 底价数字只在服务端比较，任何返回里都不带。
 
+import { presentSignals } from '../discovery/discoveryService.js';
+
 export const STAGES = Object.freeze(['new', 'contacted', 'viewing', 'negotiating', 'signed', 'lost']);
 export const STAGE_NAME = Object.freeze({ new: '待联系', contacted: '已联系', viewing: '已看场', negotiating: '洽谈中', signed: '已签约', lost: '已放弃' });
 export const LOST_REASON_NAME = Object.freeze({ price: '价格贵', location: '位置不合适', layout: '格局不合适', other: '其他' });
@@ -16,13 +18,15 @@ const TRACK_COLUMNS = `t.id, t.company_id, t.sector_key, s.name AS sector_name, 
   t.intended_price::float AS intended_price, t.next_follow_up_at, t.viewing_at, t.lost_reason, t.lost_reason_category,
   t.need_area_min::float AS need_area_min, t.need_area_max::float AS need_area_max, t.need_property_type,
   t.need_budget_per_sqm::float AS need_budget_per_sqm, t.need_open_flame, t.contact_name, t.contact_phone,
-  t.below_floor_price, t.created_at, t.updated_at,
+  t.below_floor_price, t.created_at, t.updated_at, t.demand_check, t.demand_check_note, t.demand_checked_at,
   CASE WHEN p.id IS NOT NULL THEN p.building || ' ' || p.unit_no END AS intended_property_label`;
 const TRACK_JOINS = `JOIN leadgen.sectors s ON s.key = t.sector_key
   LEFT JOIN leadgen.users o ON o.id = t.owner_user_id
   LEFT JOIN leadgen.properties p ON p.id = t.intended_property_id`;
 
-const present = track => ({ ...track, stage_name: STAGE_NAME[track.stage], lost_reason_name: LOST_REASON_NAME[track.lost_reason_category] ?? null });
+export const DEMAND_CHECK_NAME = Object.freeze({ confirmed: '确有需求', later: '以后可能有', none: '没有需求', unreachable: '没联系上' });
+
+const present = track => ({ ...track, demand_check_name: DEMAND_CHECK_NAME[track.demand_check] ?? null, stage_name: STAGE_NAME[track.stage], lost_reason_name: LOST_REASON_NAME[track.lost_reason_category] ?? null });
 
 export async function listCustomers(pool, { user, sectors, stage, search, mine, limit = 50, offset = 0 }) {
   if (stage && !STAGES.includes(stage)) throw fail(400, 'STAGE_INVALID', '阶段不正确');
@@ -55,10 +59,10 @@ export async function getCompanyProfile(pool, { companyId, user }) {
   requireUuid(companyId, 'COMPANY_NOT_FOUND');
   const { rows: [company] } = await pool.query(`
     SELECT id, company_name, address, city, industry, phone, distance_m, website_url, unified_social_credit_code,
-           employee_scale, established_on, source, source_ref, qualification_status, created_at, last_collected_at
+           employee_scale, established_on, source, source_ref, qualification_status, created_at, last_collected_at, signals_checked_at
     FROM leadgen.companies WHERE id = $1 AND lifecycle_status = 'ACTIVE'`, [companyId]);
   if (!company) throw fail(404, 'COMPANY_NOT_FOUND', '没有找到这家企业');
-  const [{ rows: tracks }, { rows: candidates }, { rows: activities }] = await Promise.all([
+  const [{ rows: tracks }, { rows: candidates }, { rows: activities }, { rows: signals }] = await Promise.all([
     pool.query(`SELECT ${TRACK_COLUMNS} FROM leadgen.company_sector_tracks t ${TRACK_JOINS} WHERE t.company_id = $1 ORDER BY s.sort_order`, [companyId]),
     pool.query(`
       SELECT k.id, k.sector_key, s.name AS sector_name, k.score, k.score_items, k.notices, k.status
@@ -71,11 +75,16 @@ export async function getCompanyProfile(pool, { companyId, user }) {
       JOIN leadgen.sectors s ON s.key = t.sector_key
       LEFT JOIN leadgen.users u ON u.id = a.created_by
       WHERE t.company_id = $1 AND t.sector_key = ANY($2)
-      ORDER BY a.occurred_at DESC, a.created_at DESC LIMIT 200`, [companyId, [...user.sectors]])
+      ORDER BY a.occurred_at DESC, a.created_at DESC LIMIT 200`, [companyId, [...user.sectors]]),
+    pool.query(`
+      SELECT signal_type AS type, evidence, source_title, source_url, source_date, openings
+      FROM leadgen.company_signals WHERE company_id = $1`, [companyId])
   ]);
   return {
     company: { ...company, source_url: company.source === 'amap' ? `https://www.amap.com/place/${company.source_ref}` : null },
     candidates,
+    // 这家企业为什么可能有需求：公开网页上查到的迹象，带出处。
+    demand: presentSignals(signals, company.signals_checked_at),
     tracks: tracks.map(track => (user.sectors.includes(track.sector_key)
       ? { ...present(track), restricted: false }
       : { id: track.id, sector_key: track.sector_key, sector_name: track.sector_name, stage: track.stage,
@@ -133,6 +142,8 @@ const FIELD_PARSERS = {
   need_open_flame: value => Boolean(value),
   contact_name: value => optionalText(value, 40),
   contact_phone: value => optionalText(value, 40),
+  demand_check: value => { if (value !== null && !DEMAND_CHECK_NAME[value]) throw fail(400, 'TRACK_FIELD_INVALID', '核实结果不正确'); return value; },
+  demand_check_note: value => optionalText(value, 300),
   lost_reason: value => optionalText(value, 300),
   lost_reason_category: value => { if (value !== null && !LOST_REASON_NAME[value]) throw fail(400, 'TRACK_FIELD_INVALID', '放弃原因不正确'); return value; }
 };
@@ -201,6 +212,12 @@ export async function updateTrack(pool, { trackId, user, changes }) {
       throw fail(403, 'BELOW_FLOOR_NEEDS_ADMIN', '意向价低于公司可接受的最低条件，需要管理员批准后才能签约');
     }
 
+    // 联系后核实的结果：记下是谁、什么时候核实的。
+    const demandChanged = next.demand_check !== undefined && next.demand_check !== track.demand_check;
+    if (demandChanged) {
+      next.demand_checked_at = next.demand_check ? new Date().toISOString() : null;
+      next.demand_checked_by = next.demand_check ? user.id : null;
+    }
     const stageChanged = next.stage !== undefined && next.stage !== track.stage;
     if (stageChanged) next.stage_changed_at = new Date().toISOString();
     const fields = Object.keys(next);
@@ -212,6 +229,10 @@ export async function updateTrack(pool, { trackId, user, changes }) {
       const reason = next.stage === 'lost' ? `，原因：${LOST_REASON_NAME[merged.lost_reason_category]}${merged.lost_reason ? `（${merged.lost_reason}）` : ''}` : '';
       await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, created_by) VALUES ($1, 'stage', $2, $3)`,
         [trackId, `${STAGE_NAME[track.stage]} → ${STAGE_NAME[next.stage]}${reason}`, user.id]);
+    }
+    if (demandChanged && next.demand_check) {
+      await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, created_by) VALUES ($1, 'note', $2, $3)`,
+        [trackId, `联系后核实：${DEMAND_CHECK_NAME[next.demand_check]}${merged.demand_check_note ? `（${merged.demand_check_note}）` : ''}`, user.id]);
     }
     const priceChanged = next.intended_price !== undefined && Number(next.intended_price) !== Number(track.intended_price);
     if (belowFloor && (priceChanged || !track.below_floor_price)) {

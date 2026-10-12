@@ -57,6 +57,15 @@
             <input type="search" id="q" placeholder="按企业名称或地址筛选" aria-label="筛选">
           </label>
         </div>
+        <div class="evidence-bar" id="evidence-bar" role="group" aria-label="按需求依据筛选">
+          <span>需求依据</span>
+          <button type="button" data-evidence="any" aria-pressed="true">全部<i id="ev-any"></i></button>
+          <button type="button" data-evidence="has" aria-pressed="false">有依据<i id="ev-has"></i></button>
+          <button type="button" data-evidence="strong" aria-pressed="false">中等以上<i id="ev-strong"></i></button>
+          <button type="button" data-evidence="none" aria-pressed="false">查过没有<i id="ev-none"></i></button>
+          <button type="button" data-evidence="unchecked" aria-pressed="false">还没查<i id="ev-unchecked"></i></button>
+        </div>
+        <p class="evidence-note">列表里的企业是恒兆广场周边的企业，不代表它们在找场地。“需求依据”是从公开网页上查到的迹象：强 = 对方在找场地或要搬迁；中 = 规模在扩大；弱 = 只看到在招人。打电话前先看依据，打完在客户页记下对方到底有没有需求。</p>
         <div id="list"><div class="state">正在加载</div></div>
         <div class="more" id="more" hidden><button class="btn" type="button" id="load-more">再看 50 家</button></div>
       </div>

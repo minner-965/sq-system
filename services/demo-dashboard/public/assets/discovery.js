@@ -8,7 +8,7 @@ const splitList = value => value.split(/[、,，\s]+/).map(item => item.trim()).
 const post = (path, body, method = 'POST') => api(path, { method, headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
 
 const shell = await initShell({ page: 'discovery' });
-const state = { status: 'pending', q: '', items: [], total: 0, polling: null };
+const state = { status: 'pending', q: '', evidence: 'any', items: [], total: 0, polling: null };
 
 function notice(text) {
   byId('notice').textContent = text;
@@ -18,6 +18,20 @@ function notice(text) {
 function scoreDetail(item) {
   const rows = item.score_items.map(part => `<li><span>${escapeHtml(part.item)}</span><b>${part.points}<small> / ${part.max}</small></b><em>${escapeHtml(part.reason)}${part.source ? ` · <a href="${escapeHtml(part.source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(part.source.label)}</a>` : ''}</em></li>`).join('');
   return `<details class="why"><summary><b class="score">${item.score}</b> 分</summary><ul>${rows}</ul></details>`;
+}
+
+const day = value => (value ? String(value).slice(0, 10) : '');
+
+/** 这家企业为什么可能有需求：强弱、依据原话、日期、出处。没有查到或还没查，也照实写。 */
+function demandCell(item) {
+  const demand = item.demand;
+  if (demand.level === 'unchecked') {
+    return `<span class="status st-wait">还没查</span>${shell.user.can_write ? `<div><button class="btn sm link" type="button" data-check="${item.company_id}">现在查一下</button></div>` : ''}`;
+  }
+  if (demand.level === 'none') return `<span class="status st-wait">没查到</span><div class="meta">${day(demand.checked_at)} 查过，近一年没有相关公开信息</div>`;
+  return `<span class="status ev-${demand.level}">${demand.level_name}</span>
+    <ul class="evidence">${demand.items.map(signal => `<li><b>${escapeHtml(signal.type_name)}</b> ${escapeHtml(signal.evidence)}
+      <span class="meta">${signal.source_date ? `${day(signal.source_date)} · ` : ''}<a href="${escapeHtml(signal.source_url)}" target="_blank" rel="noopener noreferrer">看出处</a></span></li>`).join('')}</ul>`;
 }
 
 function actions(item) {
@@ -37,9 +51,10 @@ function renderList() {
     byId('list').innerHTML = `<div class="state"><b>${text[0]}</b>${text[1]}</div>`;
   } else {
     byId('list').innerHTML = `<table class="cands">
-      <thead><tr><th scope="col">企业</th><th scope="col">板块</th><th scope="col">距离</th><th scope="col">评分</th><th scope="col">电话</th><th scope="col"><span class="sr">操作</span></th></tr></thead>
+      <thead><tr><th scope="col">企业</th><th scope="col">需求依据</th><th scope="col">板块</th><th scope="col">距离</th><th scope="col">评分</th><th scope="col">电话</th><th scope="col"><span class="sr">操作</span></th></tr></thead>
       <tbody>${state.items.map(item => `<tr data-row="${item.id}">
         <td><div class="co">${escapeHtml(item.company_name)}</div><div class="meta">${escapeHtml(item.industry || '')}${item.industry && item.address ? ' · ' : ''}${escapeHtml(item.address || '')}</div>${item.notices.map(text => `<div class="meta late">${escapeHtml(text)}</div>`).join('')}</td>
+        <td class="demand">${demandCell(item)}</td>
         <td>${escapeHtml(item.sector_name)}</td>
         <td class="num">${distance(item.distance_m)}</td>
         <td>${scoreDetail(item)}</td>
@@ -53,7 +68,9 @@ function renderList() {
 async function loadList({ append = false } = {}) {
   const params = new URLSearchParams({ sector: shell.sector, status: state.status, limit: PAGE, offset: append ? state.items.length : 0 });
   if (state.q) params.set('q', state.q);
+  params.set('evidence', state.evidence);
   const data = await api(`/api/discovery/candidates?${params}`);
+  for (const key of ['any', 'has', 'strong', 'none', 'unchecked']) byId(`ev-${key}`).textContent = ` ${data.evidence_counts[key]}`;
   state.items = append ? [...state.items, ...data.items] : data.items;
   state.total = data.total;
   for (const key of ['pending', 'approved', 'rejected']) byId(`count-${key}`).textContent = ` ${data.counts[key]}`;
@@ -118,6 +135,30 @@ document.querySelector('.tabs').addEventListener('click', event => {
   state.status = tab.dataset.status;
   document.querySelectorAll('[data-status]').forEach(item => item.setAttribute('aria-selected', String(item === tab)));
   refresh();
+});
+
+byId('evidence-bar').addEventListener('click', event => {
+  const button = event.target.closest('[data-evidence]');
+  if (!button || button.dataset.evidence === state.evidence) return;
+  state.evidence = button.dataset.evidence;
+  document.querySelectorAll('[data-evidence]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+  refresh();
+});
+
+byId('list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-check]');
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = '正在查';
+  try {
+    const result = await post(`/api/discovery/companies/${button.dataset.check}/signals`, {});
+    notice(result.found ? `查到 ${result.found} 条依据。` : '查过了，近一年没有相关的公开信息。');
+    await loadList();
+  } catch (error) {
+    notice(error.message);
+    button.disabled = false;
+    button.textContent = '现在查一下';
+  }
 });
 
 let typing;

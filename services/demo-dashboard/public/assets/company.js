@@ -11,6 +11,7 @@ const shell = await initShell({ page: 'customers' });
 const canWrite = shell.user.can_write;
 const owners = {};
 
+const DEMAND_CHECKS = [['confirmed', '确有需求'], ['later', '以后可能有'], ['none', '没有需求'], ['unreachable', '没联系上']];
 const SOURCE_NAME = { douyin: '抖音', xiaohongshu: '小红书', channels: '视频号', moments: '朋友圈' };
 const dateTime = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const distance = metres => (metres >= 1000 ? `${(metres / 1000).toFixed(1)} 公里` : `${metres} 米`);
@@ -52,6 +53,41 @@ function renderScores(candidates) {
       <ul>${item.score_items.map(part => `<li><span>${escapeHtml(part.item)}</span><b>${part.points}<small> / ${part.max}</small></b><em>${escapeHtml(part.reason)}</em></li>`).join('')}</ul>
       ${item.notices.map(text => `<p class="meta late">${escapeHtml(text)}</p>`).join('')}
     </details>`).join('<div style="height:10px"></div>') : '<div class="state">没有评分记录</div>';
+}
+
+// 每类依据对应的、打电话时先要核实的问题。问的是事实，不是推销。
+const ASK = {
+  seeking_space: ['还在找场地吗，找到了没有', '要多大面积，什么时候要用', '除了办公，还需要门面、仓库或住宿吗'],
+  relocation: ['是不是要搬，打算什么时候搬', '现在的地方哪里不合适（面积、租金、位置）', '搬的话需要多大面积'],
+  new_setup: ['新公司或新分支现在在哪里办公', '是临时落脚还是已经定了长期的地方', '大概多少人办公'],
+  expansion: ['扩了以后现在的办公位够不够', '有没有打算把部分团队分出来单独办公', '来往的客户和外地同事住宿、接待怎么安排'],
+  project_site: ['项目部驻地定了没有，多少人常驻', '项目周期多长', '住宿和用餐是自己解决还是统一安排'],
+  hiring: ['这批招的人到岗以后，现在的地方坐得下吗', '有没有计划换大一点的地方或加一处办公点']
+};
+const day = value => (value ? String(value).slice(0, 10) : '');
+let demandCompanyId = null;
+
+function renderDemand(demand, companyId) {
+  demandCompanyId = companyId;
+  const canCheck = canWrite && (!demand.checked_at || Date.now() - new Date(demand.checked_at).getTime() > 24 * 3600 * 1000);
+  const recheck = canCheck ? `<button class="btn sm" type="button" data-recheck>${demand.checked_at ? '重新查一遍' : '现在查一下'}</button>` : '';
+  if (demand.level === 'unchecked') {
+    byId('demand').innerHTML = `<p class="meta">还没有查过这家企业的公开信息。它是周边的企业，现在不知道有没有需求。</p><div class="demand-check">${recheck}</div>`;
+    return;
+  }
+  if (demand.level === 'none') {
+    byId('demand').innerHTML = `<p class="meta">${day(demand.checked_at)} 查过，近一年没有查到找场地、迁址、新设、扩张、本地项目、招聘方面的公开信息。打电话时按陌生拜访对待，先问对方有没有用房、住宿、用餐方面的打算。</p><div class="demand-check">${recheck}</div>`;
+    return;
+  }
+  const questions = [...new Set(demand.items.flatMap(signal => ASK[signal.type] || []))].slice(0, 5);
+  byId('demand').innerHTML = `
+    <p><span class="status ev-${demand.level}">${demand.level_name}</span> <span class="meta">${escapeHtml(demand.level_meaning)}</span></p>
+    <ul class="evidence">${demand.items.map(signal => `<li><b>${escapeHtml(signal.type_name)}</b> ${escapeHtml(signal.evidence)}
+      <span class="meta">${signal.source_date ? `${day(signal.source_date)} · ` : '没有日期 · '}<a href="${escapeHtml(signal.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml((signal.source_title || '看出处').slice(0, 30))}</a></span></li>`).join('')}</ul>
+    <h4 class="sub-title">打电话先核实</h4>
+    <ol class="ask">${questions.map(text => `<li>${text}</li>`).join('')}</ol>
+    <p class="meta">这些是公开网页上的迹象，不等于对方一定有需求。核实后在左边的跟进里记下结果。${day(demand.checked_at)} 查的。</p>
+    <div class="demand-check">${recheck}</div>`;
 }
 
 let timeline = [];
@@ -103,6 +139,10 @@ function trackCard(track) {
     <div class="pb">
       ${track.below_floor_price ? `<div class="warn-box" role="alert">${PRICE_WARNING}</div>` : ''}
       <div class="steps" role="group" aria-label="跟进阶段">${STAGES.map(([key, label]) => `<button type="button" data-stage="${key}" class="${key === 'lost' ? 'lost' : ''}" aria-pressed="${key === track.stage}"${off}>${label}</button>`).join('')}</div>
+      <div class="field"><label>联系后核实：对方有没有需求</label>
+        <div class="demand-check" role="group" aria-label="联系后核实">${DEMAND_CHECKS.map(([key, label]) => `<button class="btn sm" type="button" data-demand="${key}" aria-pressed="${track.demand_check === key}"${off}>${label}</button>`).join('')}</div>
+        ${track.demand_checked_at ? `<div class="meta">${dateTime(track.demand_checked_at)} 记的${track.demand_check_note ? `：${escapeHtml(track.demand_check_note)}` : ''}</div>` : '<div class="meta">打过电话或见过面以后点一下，用来回头看哪类依据准</div>'}
+      </div>
       <form class="track-form lost-form" hidden>
         <div class="field"><label>放弃原因（必选）</label><select name="lost_reason_category" required>${options(LOST_REASONS, track.lost_reason_category, '请选择')}</select></div>
         <div class="field"><label>补充说明</label><input name="lost_reason" value="${escapeHtml(track.lost_reason || '')}" maxlength="300"></div>
@@ -146,6 +186,7 @@ async function load() {
     }
     renderFacts(data.company);
     renderScores(data.candidates);
+    renderDemand(data.demand, data.company.id);
     renderTimeline(data.activities);
     byId('tracks').innerHTML = data.tracks.length ? data.tracks.map(trackCard).join('')
       : '<section class="card"><div class="state"><b>还没有进入跟进</b>在“企业发现”里复核通过后，这里会出现对应板块的跟进</div></section>';
@@ -192,6 +233,13 @@ byId('tracks').addEventListener('click', event => {
     changeTrack(card, { stage: stage.dataset.stage }, `阶段已改为“${stage.textContent}”`);
     return;
   }
+  const demand = event.target.closest('[data-demand]');
+  if (demand && demand.getAttribute('aria-pressed') !== 'true') {
+    const note = prompt(`记为“${demand.textContent}”。可以补一句对方怎么说的（可不填）：`);
+    if (note === null) return;
+    changeTrack(card, { demand_check: demand.dataset.demand, demand_check_note: note.trim() || null }, `已记下：${demand.textContent}`);
+    return;
+  }
   if (event.target.closest('[data-cancel-lost]')) { card.querySelector('.lost-form').hidden = true; return; }
   if (event.target.closest('[data-load-matches]')) { loadMatches(card); return; }
   const intend = event.target.closest('[data-intend]');
@@ -236,3 +284,20 @@ byId('record').addEventListener('click', event => { if (event.target === event.c
 byId('retry').addEventListener('click', load);
 if (companyId) await load();
 else { byId('error-text').textContent = '没有指定企业'; byId('error').hidden = false; }
+
+byId('demand').addEventListener('click', async event => {
+  const button = event.target.closest('[data-recheck]');
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = '正在查';
+  try {
+    const result = await send(`/api/discovery/companies/${demandCompanyId}/signals`, 'POST', {});
+    await load();
+    byId('notice').textContent = result.found ? `查到 ${result.found} 条依据。` : '查过了，近一年没有相关的公开信息。';
+    byId('notice').hidden = false;
+  } catch (error) {
+    byId('notice').textContent = error.message;
+    byId('notice').hidden = false;
+    button.disabled = false;
+  }
+});

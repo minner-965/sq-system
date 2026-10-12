@@ -60,6 +60,21 @@ function renderChannels(items) {
     <p class="report-note">浏览和点赞是这段时间发布的帖子到现在的累计数。线索和留资按人数算。</p>`;
 }
 
+function renderEvidence(rows) {
+  if (!rows.some(row => row.checked)) {
+    byId('evidence').innerHTML = '<div class="state"><b>这段时间还没有记过核实结果</b>联系客户以后，在客户页的“联系后核实”里点一下对方有没有需求，这里就能看出哪类依据准</div>';
+    return;
+  }
+  byId('evidence').innerHTML = `<table class="cands report-table">
+    <thead><tr><th scope="col">联系前的依据</th><th scope="col" class="num">核实过</th><th scope="col" class="num">确有需求</th><th scope="col" class="num">以后可能有</th>
+      <th scope="col" class="num">没有需求</th><th scope="col" class="num">没联系上</th><th scope="col" class="num">联系上的里面确有需求</th></tr></thead>
+    <tbody>${rows.map(row => `<tr${row.checked ? '' : ' class="quiet"'}>
+      <td>${escapeHtml(row.name)}</td><td class="num">${number(row.checked)}</td><td class="num">${number(row.confirmed)}</td><td class="num">${number(row.later)}</td>
+      <td class="num">${number(row.none)}</td><td class="num">${number(row.unreachable)}</td><td class="num">${rate(row.hit_rate)}</td>
+    </tr>`).join('')}</tbody></table>
+    <p class="report-note">只统计联系后记了核实结果的客户。核实的客户还少的时候，比例没有参考意义。</p>`;
+}
+
 function renderWorkload(rows, ownOnly) {
   byId('workload-sub').textContent = ownOnly ? '你这段时间做了什么' : '每个人这段时间做了什么';
   if (!rows.length) { byId('workload').innerHTML = '<div class="state">没有可以统计的人员</div>'; return; }
@@ -84,11 +99,12 @@ async function load() {
     byId('sub').textContent = `${data.period.from} 至 ${data.period.to} · ${shell.sectorName(shell.sector)}`;
     renderFunnel(data.funnel);
     renderChannels(data.channels);
+    renderEvidence(data.evidence);
     renderWorkload(data.workload, data.own_row_only);
   } catch (error) {
     byId('error-text').textContent = error.message;
     byId('error').hidden = false;
-    for (const id of ['funnel', 'channels', 'workload']) byId(id).innerHTML = '<div class="state">没有加载出来</div>';
+    for (const id of ['funnel', 'channels', 'evidence', 'workload']) byId(id).innerHTML = '<div class="state">没有加载出来</div>';
   }
 }
 

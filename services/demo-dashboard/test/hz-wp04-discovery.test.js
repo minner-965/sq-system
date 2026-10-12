@@ -63,7 +63,7 @@ test('demand signals add up to 30 points, each tied to the page it came from', (
   const company = normalizePoi(POI);
   const office = options => scoreCompany(company, options)[0];
   assert.equal(office().items[3].reason, '还没有查过');
-  assert.equal(office({ signalsChecked: true }).items[3].reason, '近一年没有查到招聘、扩张、迁址、新设方面的公开信息');
+  assert.equal(office({ signalsChecked: true }).items[3].reason, '近一年没有查到找场地、迁址、新设、扩张、本地项目、招聘方面的公开信息');
 
   const hiring = { type: 'hiring', evidence: '正在招聘销售和工程师', sourceTitle: '示例科技招聘', sourceUrl: 'https://jobs.example/1' };
   const moving = { type: 'relocation', evidence: '计划年内搬到新园区', sourceTitle: '示例科技搬迁公告', sourceUrl: 'https://news.example/2' };
@@ -88,7 +88,7 @@ test('a signal is kept only when it points at a real search result', () => {
     { type: 'bankrupt', result: 1, evidence: '不认识的类型' },
     { type: 'expansion', result: 2, evidence: '' }
   ] }, results);
-  assert.deepEqual(signals, [{ type: 'hiring', evidence: '在招人', sourceTitle: '示例科技招聘', sourceUrl: 'https://jobs.example/1', sourceDate: '2026-09-30' }]);
+  assert.deepEqual(signals, [{ type: 'hiring', evidence: '在招人', openings: null, sourceTitle: '示例科技招聘', sourceUrl: 'https://jobs.example/1', sourceDate: '2026-09-30' }]);
   assert.deepEqual(validateSignals({}, results), []);
   assert.deepEqual(validateSignals({ signals: 'none' }, results), []);
 });
@@ -135,4 +135,49 @@ test('discovery writes are limited to accounts that can edit, settings to admini
   assert.match(routes, /const write = \[auth\.authenticate, auth\.requireWrite\]/);
   // 接口 Key 只在服务端使用，不出现在页面脚本里。
   assert.doesNotMatch(readFileSync(path.join(appRoot, 'public', 'assets', 'discovery.js'), 'utf8'), /AMAP_KEY|restapi\.amap/);
+});
+
+test('evidence is graded by how directly it points at a need for space', async () => {
+  const { STRENGTH, demandLevel, strengthOf, validateSignals: validate } = await import('../src/discovery/signals.js');
+  assert.equal(strengthOf({ type: 'seeking_space' }), 'strong');
+  assert.equal(strengthOf({ type: 'relocation' }), 'strong');
+  assert.equal(strengthOf({ type: 'expansion' }), 'medium');
+  assert.equal(strengthOf({ type: 'project_site' }), 'medium');
+  // A couple of openings says little about space; a large intake means the team is growing.
+  assert.equal(strengthOf({ type: 'hiring', openings: 2 }), 'weak');
+  assert.equal(strengthOf({ type: 'hiring', openings: null }), 'weak');
+  assert.equal(strengthOf({ type: 'hiring', openings: 31 }), 'medium');
+  assert.equal(demandLevel([], false), 'unchecked');
+  assert.equal(demandLevel([], true), 'none');
+  assert.equal(demandLevel([{ type: 'hiring', openings: 3 }, { type: 'relocation' }], true), 'strong');
+  assert.ok(STRENGTH.weak.meaning.includes('不能说明'));
+  const results = [{ title: '示例科技招聘', url: 'https://jobs.example/1', date: null }];
+  assert.equal(validate({ signals: [{ type: 'hiring', result: 1, evidence: '在招 18 个岗位', openings: 18 }] }, results)[0].openings, 18);
+  assert.equal(validate({ signals: [{ type: 'hiring', result: 1, evidence: '在招人', openings: '很多' }] }, results)[0].openings, null);
+  assert.equal(validate({ signals: [{ type: 'expansion', result: 1, evidence: '扩产', openings: 50 }] }, results)[0].openings, null);
+});
+
+test('the result of a call is recorded on the customer and a single company can be looked up before calling', () => {
+  const customers = readFileSync(path.join(appRoot, 'src', 'customers', 'customerService.js'), 'utf8');
+  assert.match(customers, /demand_check: value =>/);
+  assert.match(customers, /联系后核实：\$\{DEMAND_CHECK_NAME\[next\.demand_check\]\}/);
+  const routes = readFileSync(path.join(appRoot, 'src', 'discovery', 'discoveryRoutes.js'), 'utf8');
+  assert.match(routes, /router\.post\('\/companies\/:companyId\/signals', \.\.\.write/);
+  const signals = readFileSync(path.join(appRoot, 'src', 'discovery', 'signals.js'), 'utf8');
+  assert.match(signals, /SIGNAL_CHECKED_RECENTLY/);
+});
+
+test('evidence must be about now: old events and undated new companies are dropped, project offices are read off the listing', async () => {
+  const { nameSignals, validateSignals: validate } = await import('../src/discovery/signals.js');
+  const results = [{ title: '某公司', url: 'https://news.example/1', date: null }];
+  const now = new Date('2026-10-12T00:00:00Z');
+  const kept = raw => validate({ signals: raw }, results, now).map(signal => signal.type);
+  assert.deepEqual(kept([{ type: 'new_setup', result: 1, evidence: '2025 年 2 月成立', event_month: '2025-02' }]), []);
+  assert.deepEqual(kept([{ type: 'new_setup', result: 1, evidence: '今年 3 月成立', event_month: '2026-03' }]), ['new_setup']);
+  assert.deepEqual(kept([{ type: 'new_setup', result: 1, evidence: '新成立' }]), []);
+  assert.deepEqual(kept([{ type: 'expansion', result: 1, evidence: '2024 年启动扩建', event_month: '2024-06' }]), []);
+  assert.deepEqual(kept([{ type: 'hiring', result: 1, evidence: '在招人' }]), ['hiring']);
+  assert.deepEqual(nameSignals({ name: '中建四局水西旧改项目部', sourceRef: 'B0ABC' }).map(signal => [signal.type, signal.sourceUrl]),
+    [['project_site', 'https://www.amap.com/place/B0ABC']]);
+  assert.deepEqual(nameSignals({ name: '广州某某科技有限公司', sourceRef: 'B0ABD' }), []);
 });
