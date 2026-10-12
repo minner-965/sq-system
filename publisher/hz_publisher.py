@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import socket
+import threading
 import random
 import subprocess
 import sys
@@ -26,6 +28,7 @@ from psycopg.types.json import Jsonb
 
 from xiaohongshu_reader import read_xiaohongshu_notes
 from phone_driver import PhoneNotReady, phone_status, post_moments
+import direct_proxy
 from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply, send_stranger_message
 
 HERE = Path(__file__).parent.resolve()
@@ -33,7 +36,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v13"
+VERSION = "v15"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -54,6 +57,62 @@ SAU_PLATFORM = {"douyin": "douyin", "xiaohongshu": "xiaohongshu", "channels": "t
 # 只能发视频、不能发图文的平台。
 VIDEO_ONLY = {"channels"}
 PLATFORM_LABEL = {"douyin": "抖音", "channels": "视频号", "xiaohongshu": "小红书", "moments": "朋友圈"}
+
+
+_direct_note = "还没有检查网络出口"
+
+
+_direct_adapter = None
+
+
+def _direct_listening() -> bool:
+    with socket.socket() as probe:
+        probe.settimeout(1)
+        return probe.connect_ex((direct_proxy.HOST, direct_proxy.PORT)) == 0
+
+
+def _start_direct(adapter: str) -> None:
+    """通道没在跑就在本进程里起一个；已经在跑（比如另一个窗口里起的）就直接用。"""
+    global _direct_adapter
+    _direct_adapter = adapter
+    if not _direct_listening():
+        threading.Thread(target=lambda: asyncio.run(direct_proxy.serve(adapter)), name="direct-proxy", daemon=True).start()
+        time.sleep(1)
+
+
+def keep_direct() -> None:
+    """每一轮看一眼通道还在不在；别的窗口起的通道关掉了，就自己接着起，免得浏览器连不上。"""
+    if _direct_adapter and os.environ.get("HZ_DIRECT_PROXY") and not _direct_listening():
+        _start_direct(_direct_adapter)
+
+
+def ensure_direct() -> str:
+    """让这个程序和它调用的发布组件打开的浏览器走这台电脑自己的宽带，不经过电脑上的代理软件。
+    做不到就照原样走，并把原因写在在线状态里。返回一句说明。"""
+    global _direct_note
+    if os.environ.get("HZ_DIRECT_PROXY"):
+        return _direct_note
+    try:
+        adapter = direct_proxy.real_adapter_ip()
+        if not adapter:
+            _direct_note = "没有找到真实上网的网卡，浏览器照原样联网"
+            return _direct_note
+        seen = direct_proxy.egress(adapter)
+        if not direct_proxy.is_domestic(seen):
+            _direct_note = f"真实网卡出去的不是国内地址（{seen[:40]}），浏览器照原样联网"
+            return _direct_note
+        _start_direct(adapter)
+        os.environ["HZ_DIRECT_PROXY"] = f"http://{direct_proxy.HOST}:{direct_proxy.PORT}"
+        os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, [str(HERE / "hz_netpatch"), os.environ.get("PYTHONPATH")]))
+        # 本进程里的浏览器也挂上（子进程靠上面两个环境变量自动挂）。
+        sys.path.insert(0, str(HERE / "hz_netpatch"))
+        import importlib
+        import sitecustomize as netpatch
+        importlib.reload(netpatch)
+        _direct_note = f"浏览器走本机宽带直连（{seen[:40]}）"
+    except Exception as error:
+        _direct_note = f"直连通道没起来，浏览器照原样联网：{error}"[:160]
+    return _direct_note
 
 
 def load_env() -> dict[str, str]:
@@ -222,7 +281,8 @@ def phone_heartbeat(conn: psycopg.Connection) -> None:
 
 
 def heartbeat(conn: psycopg.Connection) -> None:
-    conn.execute("UPDATE leadgen.publisher_heartbeat SET last_seen_at = now(), host_name = %s WHERE id = 1", (f"{os.environ.get('COMPUTERNAME', '')} · {VERSION}",))
+    conn.execute("UPDATE leadgen.publisher_heartbeat SET last_seen_at = now(), host_name = %s, network_note = %s WHERE id = 1",
+                 (f"{os.environ.get('COMPUTERNAME', '')} · {VERSION}", _direct_note))
 
 
 def command_check() -> int:
@@ -619,6 +679,8 @@ def recover_interrupted(conn: psycopg.Connection) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "run"
+    if command in ("login", "check", "sync", "metrics", "once", "run"):
+        print(ensure_direct())
     if command == "login" and len(argv) == 3:
         return command_login(argv[2])
     if command == "check":
@@ -640,7 +702,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
@@ -667,6 +729,7 @@ def main(argv: list[str]) -> int:
                         if [path.stat().st_mtime for path in sources] != loaded:
                             print("程序已更新，正在重新启动。")
                             return 75
+                        keep_direct()
                         heartbeat(conn)
                         phone_heartbeat(conn)
                         process_login_requests(conn)

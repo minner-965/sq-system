@@ -59,6 +59,9 @@ async function load() {
   try {
     const data = await api('/api/publishing/accounts');
     phone = data.phone;
+    byId('network-line').textContent = data.publisher.network_note || '';
+    byId('network-line').hidden = !data.publisher.network_note;
+    byId('network-line').classList.toggle('late', Boolean(data.publisher.network_note) && !data.publisher.network_note.includes('直连（'));
     byId('publisher-line').textContent = data.publisher.online ? '发布程序正在这台电脑上运行'
       : `发布程序没有在运行${data.publisher.last_seen_at ? `（最后在线 ${dateTime(data.publisher.last_seen_at)}）` : ''}。扫码登录和到点发布都需要它：双击 publisher 文件夹里的 start-publisher.cmd`;
     byId('list').innerHTML = data.items.length ? `<div class="stack">${data.items.map(accountCard).join('')}</div>`

@@ -359,10 +359,10 @@ export async function listAccounts(pool) {
       FROM leadgen.publish_accounts a
       LEFT JOIN LATERAL (SELECT status, message, created_at FROM leadgen.publish_login_requests WHERE account_id = a.id ORDER BY created_at DESC LIMIT 1) r ON true
       ORDER BY array_position(ARRAY['douyin', 'channels', 'xiaohongshu', 'moments'], a.platform), a.created_at`),
-    pool.query(`SELECT last_seen_at, last_seen_at > now() - make_interval(secs => $1) AS online, phone, phone_checked_at > now() - interval '5 minutes' AS phone_fresh FROM leadgen.publisher_heartbeat WHERE id = 1`, [PUBLISHER_ONLINE_SECONDS])
+    pool.query(`SELECT last_seen_at, last_seen_at > now() - make_interval(secs => $1) AS online, network_note, phone, phone_checked_at > now() - interval '5 minutes' AS phone_fresh FROM leadgen.publisher_heartbeat WHERE id = 1`, [PUBLISHER_ONLINE_SECONDS])
   ]);
   return {
-    publisher: { online: Boolean(beat?.online), last_seen_at: beat?.last_seen_at ?? null },
+    publisher: { online: Boolean(beat?.online), last_seen_at: beat?.last_seen_at ?? null, network_note: beat?.online ? beat.network_note ?? null : null },
     // 专用手机：发朋友圈用。发布程序每分钟看一次；程序没在跑或很久没看过，就当不知道。
     phone: beat?.online && beat.phone_fresh && beat.phone
       ? { known: true, connected: Boolean(beat.phone.connected), ready: Boolean(beat.phone.ready), model: beat.phone.model || null,
