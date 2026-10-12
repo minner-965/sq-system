@@ -170,6 +170,32 @@ class DouYinBaseUploader(BaseVideoUploader):''',
         '                # 恒兆补丁：登录失效时登录框要好几秒才出来，只等 2.5 秒会把失效误判成有效。最多等 15 秒，看到登录框或看到已登录的页面就停。\n                for _hz_wait in range(15):\n                    await page.wait_for_timeout(1000)\n                    if await page.get_by_text("扫码登录").count() or await page.get_by_text("验证码登录").count() or await page.locator(\'input[type="file"]\').count():\n                        break\n                has_login = await page.get_by_text("手机号登录").count() or await page.get_by_text("扫码登录").count() or await page.get_by_text("验证码登录").count()',
         "2026-10-11：抖音登录已经失效，组件的检查却说有效（只等 2.5 秒，登录框还没渲染出来），结果“扫码登录”不弹二维码、直接报成功。",
     ),
+    (
+        "uploader/douyin_uploader/main.py",
+        """[class*=\\"mention-wrapper\\"]').forEach(e => e.remove()); }\"""",
+        """[class*=\\"mention-wrapper\\"]').forEach(e => { if (!e.querySelector('[contenteditable], input, textarea')) e.remove(); }); }\"""",
+        "2026-10-12：点“发布”前清浮层时，“mention-wrapper”也匹配到包着正文输入框的那一层，整个表单被删掉，发出去的视频只有标题、没有正文和话题。改为只删不含输入框的浮层。",
+    ),
+    (
+        "uploader/douyin_uploader/main.py",
+        """document.querySelectorAll('[class*="mention-wrapper"]').forEach(e=>{ const p=e.closest('.semi-portal'); (p||e).remove(); });""",
+        """document.querySelectorAll('[class*="mention-wrapper"]').forEach(e=>{ if (e.querySelector('[contenteditable], input, textarea')) return; const p=e.closest('.semi-portal'); (p||e).remove(); });""",
+        "2026-10-12：同上，选合集前清浮层的地方也一样，只删不含输入框的浮层。",
+    ),
+    (
+        "uploader/douyin_uploader/main.py",
+        "        sms_prompt_logged = False\n",
+        "        # 恒兆补丁：点“发布”之前，确认正文还在输入框里；不在就不发，报错让人来看（宁可不发，也不发一条没有正文的）。\n"
+        "        await self._clear_blocking_overlays(page)\n"
+        "        _hz_wanted = \"\".join((self.desc or \"\").split())[:12]\n"
+        "        if _hz_wanted:\n"
+        "            _hz_editor = page.locator('div.zone-container[contenteditable=\"true\"]').first\n"
+        "            _hz_shown = \"\".join((await _hz_editor.inner_text()).split()) if await _hz_editor.count() else \"\"\n"
+        "            if _hz_wanted not in _hz_shown:\n"
+        "                raise RuntimeError(\"发布前检查：正文没有留在输入框里，这条没有发出\")\n"
+        "        sms_prompt_logged = False\n",
+        "2026-10-12：发出去的视频只有标题没有正文，发布程序却报了成功。加一道检查：点发布前正文不在输入框里就停下。",
+    ),
 ]
 
 
