@@ -26,7 +26,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from xiaohongshu_reader import read_xiaohongshu_notes
+from xiaohongshu_reader import read_xiaohongshu_note_text, read_xiaohongshu_notes
 from channels_reader import read_channels_posts
 from phone_driver import PhoneNotReady, phone_status, post_moments
 import direct_proxy
@@ -39,7 +39,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v21"
+VERSION = "v22"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -519,7 +519,7 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
         conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
         return "登录已过期，请重新扫码"
     tasks = conn.execute(
-        """SELECT t.id, t.material_id, t.title, t.platform_post_id, t.confirmed_by, m.topic, to_char(t.published_at, 'YYYY-MM-DD HH24:MI') AS published_text
+        """SELECT t.id, t.material_id, t.title, t.body, t.platform_post_id, t.confirmed_by, m.topic, to_char(t.published_at, 'YYYY-MM-DD HH24:MI') AS published_text
            FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
            WHERE t.account_id = %s AND t.status = 'published' ORDER BY t.published_at DESC""", (account["id"],)).fetchall()
     taken = {task["platform_post_id"] for task in tasks if task["platform_post_id"]}
@@ -537,6 +537,17 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
             if item:
                 taken.add(item["item_id"])
                 linked += 1
+                # 发完读回来对一遍：平台上存的正文里要有确认稿正文的开头。对不上就提醒人，不悄悄算成功。读不到正文时不报，下次不再重读。
+                wanted = "".join((task["body"] or "").split())[:12]
+                try:
+                    stored = asyncio.run(read_xiaohongshu_note_text(account["id"], item["item_id"], item["type"])) if wanted else None
+                except Exception as error:
+                    stored = None
+                    print(f"小红书笔记的正文暂时没读到：{error}")
+                if stored is not None and wanted not in "".join(stored["text"].split()):
+                    print(f"发出去的内容和确认稿不一致：{task['topic']}（平台上没有正文）")
+                    notify(conn, "发出去的小红书内容缺了正文", f"“{task['topic']}”已经发出，但平台上没有确认稿里的正文。请到小红书上看一下，需要的话删掉重发。",
+                           f"/publishing.html?id={task['material_id']}", task["confirmed_by"])
         if not item:
             # 之前对上过、按时间又该在这一页里，却找不到了：多半是被删或被平台下架。提醒一次，由人去看；系统不改它的状态。
             if task["platform_post_id"] and page_floor and task["published_text"] and task["published_text"] > page_floor:
