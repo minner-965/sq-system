@@ -66,9 +66,13 @@ const ASK = {
 };
 const day = value => (value ? String(value).slice(0, 10) : '');
 let demandCompanyId = null;
+let companyPhone = null;
+let demandItems = [];
+const tracksById = new Map();
 
 function renderDemand(demand, companyId) {
   demandCompanyId = companyId;
+  demandItems = demand.items;
   const canCheck = canWrite && (!demand.checked_at || Date.now() - new Date(demand.checked_at).getTime() > 24 * 3600 * 1000);
   const recheck = canCheck ? `<button class="btn sm" type="button" data-recheck>${demand.checked_at ? '重新查一遍' : '现在查一下'}</button>` : '';
   if (demand.level === 'unchecked') {
@@ -139,6 +143,7 @@ function trackCard(track) {
     <div class="pb">
       ${track.below_floor_price ? `<div class="warn-box" role="alert">${PRICE_WARNING}</div>` : ''}
       <div class="steps" role="group" aria-label="跟进阶段">${STAGES.map(([key, label]) => `<button type="button" data-stage="${key}" class="${key === 'lost' ? 'lost' : ''}" aria-pressed="${key === track.stage}"${off}>${label}</button>`).join('')}</div>
+      ${canWrite ? '<div class="form-actions call-row"><button class="btn pri" type="button" data-call>打电话并记录</button></div>' : ''}
       <div class="field"><label>联系后核实：对方有没有需求</label>
         <div class="demand-check" role="group" aria-label="联系后核实">${DEMAND_CHECKS.map(([key, label]) => `<button class="btn sm" type="button" data-demand="${key}" aria-pressed="${track.demand_check === key}"${off}>${label}</button>`).join('')}</div>
         ${track.demand_checked_at ? `<div class="meta">${dateTime(track.demand_checked_at)} 记的${track.demand_check_note ? `：${escapeHtml(track.demand_check_note)}` : ''}</div>` : '<div class="meta">打过电话或见过面以后点一下，用来回头看哪类依据准</div>'}
@@ -186,6 +191,9 @@ async function load() {
     }
     renderFacts(data.company);
     renderScores(data.candidates);
+    companyPhone = data.company.phone || null;
+    tracksById.clear();
+    for (const track of data.tracks) tracksById.set(track.id, track);
     renderDemand(data.demand, data.company.id);
     renderTimeline(data.activities);
     byId('tracks').innerHTML = data.tracks.length ? data.tracks.map(trackCard).join('')
@@ -233,6 +241,7 @@ byId('tracks').addEventListener('click', event => {
     changeTrack(card, { stage: stage.dataset.stage }, `阶段已改为“${stage.textContent}”`);
     return;
   }
+  if (event.target.closest('[data-call]')) { openCall(card.dataset.track); return; }
   const demand = event.target.closest('[data-demand]');
   if (demand && demand.getAttribute('aria-pressed') !== 'true') {
     const note = prompt(`记为“${demand.textContent}”。可以补一句对方怎么说的（可不填）：`);
@@ -299,5 +308,45 @@ byId('demand').addEventListener('click', async event => {
     byId('notice').textContent = error.message;
     byId('notice').hidden = false;
     button.disabled = false;
+  }
+});
+
+// 打电话并记录：电话由人用自己的手机打，这里只负责把号码、要问的话和结果放在一起。
+let callTrackId = null;
+
+function openCall(trackId) {
+  const track = tracksById.get(trackId);
+  callTrackId = trackId;
+  const phone = track.contact_phone || companyPhone;
+  byId('call-number').innerHTML = phone
+    ? `<a class="btn" href="tel:${encodeURIComponent(phone)}">拨打 ${escapeHtml(phone)}</a><span class="meta">${track.contact_name ? escapeHtml(track.contact_name) : '用手机打开这一页可以直接拨出'}</span>`
+    : '<span class="meta">还没有这家的电话。问到以后填在“联系电话”里。</span>';
+  const questions = [...new Set(demandItems.flatMap(signal => ASK[signal.type] || []))].slice(0, 4);
+  byId('call-ask').innerHTML = questions.length
+    ? `<h4 class="sub-title">先核实</h4><ol class="ask">${questions.map(text => `<li>${text}</li>`).join('')}</ol>`
+    : '<p class="meta">这家没有查到需求依据，先问对方近期有没有用房、住宿或用餐方面的打算。</p>';
+  byId('call-form').reset();
+  byId('call-error').textContent = '';
+  byId('call-stage-row').hidden = track.stage !== 'new';
+  byId('call').showModal();
+}
+
+byId('call-close').addEventListener('click', () => byId('call').close());
+byId('call').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+byId('call-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const track = tracksById.get(callTrackId);
+  const result = data.get('result');
+  const changes = { demand_check: result, demand_check_note: String(data.get('note') || '').trim() || null, contact_via: 'call' };
+  if (data.get('next')) changes.next_follow_up_at = fromLocalInput(data.get('next'));
+  if (track.stage === 'new' && result !== 'unreachable' && data.get('advance')) changes.stage = 'contacted';
+  try {
+    await send(`/api/tracks/${callTrackId}`, 'PATCH', changes);
+    byId('call').close();
+    await load();
+    notice('通话已记下');
+  } catch (error) {
+    byId('call-error').textContent = error.message;
   }
 });

@@ -399,3 +399,7 @@ td.demand{min-width:240px;max-width:360px}
 .demand-check{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .demand-check button[aria-pressed="true"]{background:var(--primary-soft);border-color:#C7D8FB;color:var(--primary);font-weight:500}
 @media (max-width:640px){td.demand{min-width:200px}}
+.call-number{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:6px}
+.call-row{justify-content:flex-start;margin:0 0 14px}
+#call-form fieldset{border:0}
+#call-form legend{font-size:13px;color:var(--text-2);margin-bottom:6px}

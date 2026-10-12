@@ -38,6 +38,25 @@
       </div>
     </main>
   </div>
+  <dialog class="sheet" id="call" aria-labelledby="call-title">
+    <div class="sheet-head"><h3 id="call-title">打电话并记录</h3><button class="btn sm" type="button" id="call-close">关闭</button></div>
+    <form class="sheet-body" id="call-form">
+      <p class="call-number" id="call-number"></p>
+      <div id="call-ask"></div>
+      <fieldset class="field"><legend>打完以后：对方有没有需求</legend>
+        <div class="demand-check" id="call-result">
+          <label class="check"><input type="radio" name="result" value="confirmed" required>确有需求</label>
+          <label class="check"><input type="radio" name="result" value="later">以后可能有</label>
+          <label class="check"><input type="radio" name="result" value="none">没有需求</label>
+          <label class="check"><input type="radio" name="result" value="unreachable">没联系上</label>
+        </div>
+      </fieldset>
+      <div class="field"><label for="call-note">对方怎么说的（选填）</label><textarea id="call-note" name="note" maxlength="300" rows="3"></textarea></div>
+      <div class="field"><label for="call-next">下次跟进时间（选填）</label><input type="datetime-local" id="call-next" name="next"></div>
+      <label class="check" id="call-stage-row"><input type="checkbox" name="advance" checked> 联系上了就把阶段改为“已联系”</label>
+      <div class="form-actions"><span class="form-error" id="call-error" role="alert"></span><button class="btn pri" type="submit">记下来</button></div>
+    </form>
+  </dialog>
   <dialog class="sheet" id="record" aria-labelledby="record-title">
     <div class="sheet-head"><h3 id="record-title">跟进记录</h3><button class="btn sm" type="button" id="record-close">关闭</button></div>
     <div class="sheet-body" id="record-body"></div>
