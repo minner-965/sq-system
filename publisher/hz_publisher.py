@@ -27,6 +27,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from xiaohongshu_reader import read_xiaohongshu_notes
+from channels_reader import read_channels_posts
 from phone_driver import PhoneNotReady, phone_status, post_moments
 import direct_proxy
 from gov_permits import read_permits
@@ -38,7 +39,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v19"
+VERSION = "v20"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -424,6 +425,8 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
     只读我们自己通过系统发布的帖子，账号上原有的其他作品不碰。返回一句结果说明。"""
     if account["platform"] == "xiaohongshu":
         return sync_xiaohongshu(conn, account)
+    if account["platform"] == "channels":
+        return sync_channels(conn, account)
     if account["platform"] != "douyin":
         return f"{PLATFORM_LABEL[account['platform']]}的评论和私信请在手机上查看"
     linked = conn.execute(
@@ -535,6 +538,58 @@ def sync_xiaohongshu(conn: psycopg.Connection, account: dict) -> str:
                  stat_favorites = %s, stat_shares = %s, metrics_at = now(), stats_at = now(), updated_at = now() WHERE id = %s""",
             (item["item_id"], item["link"], item["views"], item["likes"], item["comments"], item["favorites"], item["shares"], task["id"]))
     note = f"读了 {updated} 条我们发布的笔记的数据" + (f"，补上链接 {linked} 条" if linked else "")
+    if missing:
+        note += f"，有 {missing} 条在平台上找不到了"
+    return f"{note}；评论和私信请在手机上查看"
+
+
+def sync_channels(conn: psycopg.Connection, account: dict) -> str:
+    """视频号：把我们发布的作品和平台上的对上，核对平台上存的文字，更新浏览、点赞等数字。账号上原有的其他作品不保存。
+    视频号没有可以直接打开的网页链接，所以只记作品编号，不记链接。"""
+    data = asyncio.run(read_channels_posts(account["id"]))
+    if not data["logged_in"]:
+        conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
+        return "登录已过期，请重新扫码"
+    tasks = conn.execute(
+        """SELECT t.id, t.material_id, t.title, t.body, t.platform_post_id, t.confirmed_by, m.topic, extract(epoch FROM t.published_at)::bigint AS published_epoch
+           FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
+           WHERE t.account_id = %s AND t.status = 'published' ORDER BY t.published_at DESC""", (account["id"],)).fetchall()
+    taken = {task["platform_post_id"] for task in tasks if task["platform_post_id"]}
+    by_id = {item["item_id"]: item for item in data["items"]}
+    # 这一页里最早一条的时间：比它晚发的作品都应该在这一页里。
+    page_floor = min((item["created"] for item in data["items"] if item["created"]), default=None)
+    squeeze = lambda text: "".join((text or "").split())
+    linked = updated = missing = 0
+    for task in tasks:
+        item = by_id.get(task["platform_post_id"]) if task["platform_post_id"] else None
+        if not item and not task["platform_post_id"]:
+            # 平台上的文字以标题开头。按标题去对，已经对上的作品不重复用。
+            item = next((post for post in data["items"] if post["item_id"] not in taken and task["title"] and squeeze(post["text"]).startswith(squeeze(task["title"])[:12])), None)
+            if item:
+                taken.add(item["item_id"])
+                linked += 1
+                # 发完读回来对一遍：平台上存的文字里要有确认稿正文的开头。对不上就提醒人，不悄悄算成功。
+                wanted = squeeze(task["body"])[:12]
+                if wanted and wanted not in squeeze(item["text"]):
+                    print(f"发出去的内容和确认稿不一致：{task['topic']}（平台上没有正文）")
+                    notify(conn, "发出去的视频号内容缺了正文", f"“{task['topic']}”已经发出，但平台上没有确认稿里的正文。请到视频号上看一下，需要的话删掉重发。",
+                           f"/publishing.html?id={task['material_id']}", task["confirmed_by"])
+        if not item:
+            # 之前对上过、按时间又该在这一页里，却找不到了：多半是被删或被平台下架。提醒一次，由人去看；系统不改它的状态。
+            if task["platform_post_id"] and page_floor and task["published_epoch"] and task["published_epoch"] > page_floor:
+                missing += 1
+                link = f"/publishing.html?id={task['material_id']}"
+                title = "发出去的视频号作品在平台上找不到了"
+                if not conn.execute("SELECT 1 FROM leadgen.notifications WHERE title = %s AND link = %s", (title, link)).fetchone():
+                    notify(conn, title, f"“{task['topic']}”之前已发出，现在视频号后台里没有这条了。如果是自己删的，请在“内容发布”里标记“已在平台上删除”；不是的话请到手机上看有没有下架提醒。",
+                           link, task["confirmed_by"])
+            continue
+        updated += 1
+        conn.execute(
+            """UPDATE leadgen.publish_tasks SET platform_post_id = %s, stat_views = %s, stat_likes = %s, stat_comments = %s,
+                 stat_favorites = %s, stat_shares = %s, metrics_at = now(), stats_at = now(), updated_at = now() WHERE id = %s""",
+            (item["item_id"], item["views"], item["likes"], item["comments"], item["favorites"], item["shares"], task["id"]))
+    note = f"读了 {updated} 条我们发布的作品的数据" + (f"，对上作品 {linked} 条" if linked else "")
     if missing:
         note += f"，有 {missing} 条在平台上找不到了"
     return f"{note}；评论和私信请在手机上查看"
@@ -797,7 +852,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py", HERE / "gov_tenders.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "channels_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py", HERE / "gov_tenders.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
