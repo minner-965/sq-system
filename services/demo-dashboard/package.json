@@ -13,6 +13,7 @@
     "check:search-llm": "node --env-file=../../.env scripts/hz/check-search-llm.mjs",
     "eval:copy": "node --env-file=../../.env scripts/hz/eval-copy.mjs",
     "eval:intent": "node --env-file=../../.env scripts/hz/eval-intent.mjs",
+    "permits:match": "node --env-file=../../.env scripts/hz/check-permits.mjs",
     "signals:check": "node --env-file=../../.env scripts/hz/check-signals.mjs",
     "check:call-log": "node --env-file=../../.env scripts/hz/check-call-log.mjs",
     "check:lead-form": "node --env-file=../../.env scripts/hz/check-lead-form.mjs",

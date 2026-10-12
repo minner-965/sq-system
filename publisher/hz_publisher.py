@@ -29,6 +29,7 @@ from psycopg.types.json import Jsonb
 from xiaohongshu_reader import read_xiaohongshu_notes
 from phone_driver import PhoneNotReady, phone_status, post_moments
 import direct_proxy
+from gov_permits import read_permits
 from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply, send_stranger_message
 
 HERE = Path(__file__).parent.resolve()
@@ -36,7 +37,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v15"
+VERSION = "v16"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -48,6 +49,8 @@ MESSAGE_GAP_MINUTES = 3
 MOMENTS_GAP_MINUTES = 40
 MOMENTS_GAP_RANDOM_MINUTES = 40
 PHONE_CHECK_SECONDS = 60
+# 政府公示的行政许可：隔这么久读一次最新的一页。
+PERMIT_HOURS = 6
 METRICS_HOURS = 6
 METRICS_DAYS = 30
 MIN_GAP_MINUTES = 10
@@ -615,6 +618,33 @@ def process_metrics(conn: psycopg.Connection) -> None:
     print(f"{account['account_name']}：读了 {len(data['metrics'])} 条帖子的数据")
 
 
+def process_permits(conn: psycopg.Connection, force: bool = False) -> str | None:
+    """读一遍黄埔区的行政许可公示，把没见过的记下来。只在走直连通道时读（那个网站不接受国外地址）。"""
+    due = conn.execute(
+        "SELECT permits_checked_at IS NULL OR permits_checked_at < now() - make_interval(hours => %s) AS due FROM leadgen.publisher_heartbeat WHERE id = 1",
+        (PERMIT_HOURS,)).fetchone()["due"]
+    if not (due or force):
+        return None
+    if not os.environ.get("HZ_DIRECT_PROXY"):
+        note = "没有读：浏览器没有走本机宽带直连"
+    else:
+        try:
+            data = asyncio.run(read_permits())
+            added = 0
+            for row in data["rows"]:
+                inserted = conn.execute(
+                    """INSERT INTO leadgen.permit_notices (source_id, doc_no, doc_title, holder_name, kind, category, decided_on, source_url)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (source_id) DO NOTHING RETURNING id""",
+                    (row["source_id"], row["doc_no"], row["doc_title"], row["holder_name"], row["kind"], row["category"], row["decided_on"], row["source_url"])).fetchone()
+                added += 1 if inserted else 0
+            note = f"{data['note']}，新的 {added} 条" if data["ok"] else data["note"]
+        except Exception as error:
+            note = f"读取出错：{error}"[:200]
+    conn.execute("UPDATE leadgen.publisher_heartbeat SET permits_checked_at = now(), permits_note = %s WHERE id = 1", (note,))
+    print(f"行政许可公示：{note}")
+    return note
+
+
 def process_replies(conn: psycopg.Connection) -> None:
     """把确认过的回复发到平台上：评论回复，和陌生人私信的回复（人确认的，或固定话术自动回的）。
     一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。私信两条之间至少隔几分钟。
@@ -679,12 +709,17 @@ def recover_interrupted(conn: psycopg.Connection) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "run"
-    if command in ("login", "check", "sync", "metrics", "once", "run"):
+    if command in ("login", "check", "sync", "metrics", "permits", "once", "run"):
         print(ensure_direct())
     if command == "login" and len(argv) == 3:
         return command_login(argv[2])
     if command == "check":
         return command_check()
+    if command == "permits":
+        # 只读一遍政府公示的行政许可，不发布任何内容。
+        with connect() as conn:
+            process_permits(conn, force=True)
+        return 0
     if command == "metrics":
         # 只读一遍已发布帖子的数据，不发布任何内容。
         with connect() as conn:
@@ -702,7 +737,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
@@ -737,6 +772,7 @@ def main(argv: list[str]) -> int:
                         process_inbox_checks(conn)
                         process_replies(conn)
                         process_metrics(conn)
+                        process_permits(conn)
                         time.sleep(POLL_SECONDS)
             except psycopg.OperationalError:
                 print("数据库连接断了，15 秒后重新连接。")

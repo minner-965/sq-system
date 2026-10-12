@@ -113,12 +113,14 @@ async function storeSignals(pool, companyId, signals, rescore) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM leadgen.company_signals WHERE company_id = $1', [companyId]);
+    // 政府公示来的依据不是这次搜索得到的，留着。
+    await client.query(`DELETE FROM leadgen.company_signals WHERE company_id = $1 AND origin <> 'permit'`, [companyId]);
     for (const signal of signals) {
       await client.query(`
-        INSERT INTO leadgen.company_signals (company_id, signal_type, evidence, source_title, source_url, source_date, openings)
-        VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
-      [companyId, signal.type, signal.evidence, signal.sourceTitle, signal.sourceUrl, signal.sourceDate, signal.openings ?? null]);
+        INSERT INTO leadgen.company_signals (company_id, signal_type, evidence, source_title, source_url, source_date, openings, origin)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`,
+      [companyId, signal.type, signal.evidence, signal.sourceTitle, signal.sourceUrl, signal.sourceDate, signal.openings ?? null,
+        signal.sourceTitle === '高德地图上的名称' ? 'name' : 'web']);
     }
     await client.query('UPDATE leadgen.companies SET signals_checked_at = now() WHERE id = $1', [companyId]);
     await rescore(client, companyId);
