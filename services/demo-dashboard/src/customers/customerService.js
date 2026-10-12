@@ -24,6 +24,7 @@ const TRACK_JOINS = `JOIN leadgen.sectors s ON s.key = t.sector_key
   LEFT JOIN leadgen.users o ON o.id = t.owner_user_id
   LEFT JOIN leadgen.properties p ON p.id = t.intended_property_id`;
 
+const CONTACT_VIA = ['call', 'visit', 'wechat'];
 export const DEMAND_CHECK_NAME = Object.freeze({ confirmed: '确有需求', later: '以后可能有', none: '没有需求', unreachable: '没联系上' });
 
 const present = track => ({ ...track, demand_check_name: DEMAND_CHECK_NAME[track.demand_check] ?? null, stage_name: STAGE_NAME[track.stage], lost_reason_name: LOST_REASON_NAME[track.lost_reason_category] ?? null });
@@ -213,7 +214,8 @@ export async function updateTrack(pool, { trackId, user, changes }) {
     }
 
     // 联系后核实的结果：记下是谁、什么时候核实的。
-    const demandChanged = next.demand_check !== undefined && next.demand_check !== track.demand_check;
+    // 每打一次电话都算一次核实，哪怕结果和上次一样（比如连着两次没联系上）。
+    const demandChanged = next.demand_check !== undefined && (next.demand_check !== track.demand_check || CONTACT_VIA.includes(changes.contact_via));
     if (demandChanged) {
       next.demand_checked_at = next.demand_check ? new Date().toISOString() : null;
       next.demand_checked_by = next.demand_check ? user.id : null;
@@ -231,8 +233,10 @@ export async function updateTrack(pool, { trackId, user, changes }) {
         [trackId, `${STAGE_NAME[track.stage]} → ${STAGE_NAME[next.stage]}${reason}`, user.id]);
     }
     if (demandChanged && next.demand_check) {
-      await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, created_by) VALUES ($1, 'note', $2, $3)`,
-        [trackId, `联系后核实：${DEMAND_CHECK_NAME[next.demand_check]}${merged.demand_check_note ? `（${merged.demand_check_note}）` : ''}`, user.id]);
+      // 核实是怎么得到的（电话、拜访、微信），跟进记录就按那个方式记；没说就记成备注。
+      const via = CONTACT_VIA.includes(changes.contact_via) ? changes.contact_via : 'note';
+      await client.query(`INSERT INTO leadgen.activities (track_id, activity_type, content, created_by) VALUES ($1, $2, $3, $4)`,
+        [trackId, via, `联系后核实：${DEMAND_CHECK_NAME[next.demand_check]}${merged.demand_check_note ? `（${merged.demand_check_note}）` : ''}`, user.id]);
     }
     const priceChanged = next.intended_price !== undefined && Number(next.intended_price) !== Number(track.intended_price);
     if (belowFloor && (priceChanged || !track.below_floor_price)) {
