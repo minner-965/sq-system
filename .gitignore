@@ -116,3 +116,4 @@ publisher/vendor/
 publisher/.venv/
 data/accounts.local.txt
 data/media/
+publisher/.venv-mc/

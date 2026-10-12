@@ -28,6 +28,7 @@ from psycopg.types.json import Jsonb
 
 from xiaohongshu_reader import read_xiaohongshu_note_text, read_xiaohongshu_notes
 from channels_reader import read_channels_posts
+import demand_search
 from phone_driver import PhoneNotReady, phone_status, post_moments
 import direct_proxy
 from gov_permits import read_permits
@@ -39,7 +40,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v22"
+VERSION = "v23"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -219,6 +220,8 @@ def account_is_logged_in(conn: psycopg.Connection, account: dict) -> bool:
 
 def login(conn: psycopg.Connection, account: dict) -> tuple[bool, str]:
     """弹出浏览器让人扫码。返回是否成功和一句说明。"""
+    if account.get("purpose") == "search":
+        return login_search_account(conn, account)
     if account["platform"] not in SAU_PLATFORM:
         return False, f"{PLATFORM_LABEL[account['platform']]}还没有接入"
     print(f"即将弹出浏览器窗口，请用{PLATFORM_LABEL[account['platform']]} App 扫码登录“{account['account_name']}”。")
@@ -235,7 +238,7 @@ def login(conn: psycopg.Connection, account: dict) -> tuple[bool, str]:
 def command_login(account_name: str) -> int:
     with connect() as conn:
         account = conn.execute(
-            "SELECT id, platform, account_name, login_status FROM leadgen.publish_accounts WHERE account_name = %s", (account_name,)).fetchone()
+            "SELECT id, platform, account_name, login_status, purpose FROM leadgen.publish_accounts WHERE account_name = %s", (account_name,)).fetchone()
         if not account:
             print(f"没有找到发布账号“{account_name}”，请先在“发布账号”页添加。")
             return 1
@@ -252,7 +255,7 @@ def process_login_requests(conn: psycopg.Connection) -> None:
     while True:
         request = conn.execute(
             """
-            SELECT r.id AS request_id, a.id, a.platform, a.account_name, a.login_status
+            SELECT r.id AS request_id, a.id, a.platform, a.account_name, a.login_status, a.purpose
             FROM leadgen.publish_login_requests r JOIN leadgen.publish_accounts a ON a.id = r.account_id
             WHERE r.status = 'queued' ORDER BY r.created_at LIMIT 1
             """).fetchone()
@@ -750,6 +753,77 @@ def process_permits(conn: psycopg.Connection, force: bool = False) -> str | None
     return note
 
 
+def store_demand_rows(conn: psycopg.Connection, platform: str, rows: list[dict]) -> int:
+    """把搜到的帖子和评论记下来，见过的不重复记。返回新的条数。筛选由主程序里的模型来做。"""
+    fresh = 0
+    for row in rows:
+        inserted = conn.execute(
+            """INSERT INTO leadgen.demand_posts (platform, kind, platform_item_id, parent_item_id, parent_title, author_key, author_name, title, content, post_url, posted_at, keyword)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (platform, kind, platform_item_id) DO NOTHING RETURNING id""",
+            (platform, row["kind"], row["platform_item_id"], row["parent_item_id"], row["parent_title"], row["author_key"], row["author_name"],
+             row["title"], row["content"], row["post_url"], row["posted_at"], row["keyword"])).fetchone()
+        fresh += 1 if inserted else 0
+    return fresh
+
+
+def login_search_account(conn: psycopg.Connection, account: dict) -> tuple[bool, str]:
+    """搜索专用小号的登录：让搜索组件开着窗口搜一个词，窗口里会出二维码，扫了能搜出东西就算登录好。"""
+    if account["platform"] not in demand_search.MC_PLATFORM:
+        return False, f"{PLATFORM_LABEL.get(account['platform'], account['platform'])}不能用来搜索"
+    settings = conn.execute("SELECT keywords, max_age_days FROM leadgen.demand_settings WHERE id = 1").fetchone()
+    print(f"即将弹出浏览器窗口，请用{PLATFORM_LABEL[account['platform']]} App 扫码登录搜索专用号“{account['account_name']}”。")
+    result = demand_search.search(account["platform"], settings["keywords"][:1], posts_per_keyword=5, max_age_days=settings["max_age_days"], headless=False)
+    if not result["ok"]:
+        return False, f"登录没有成功：{result['note']}"[:200]
+    store_demand_rows(conn, account["platform"], result["rows"])
+    conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'ok', last_login_at = now(), updated_at = now() WHERE id = %s", (account["id"],))
+    return True, "登录成功"
+
+
+def process_demand(conn: psycopg.Connection, force: bool = False) -> str | None:
+    """主动发现需求：到点了就用搜索专用小号搜一轮。没有登录好的搜索号时什么都不做。
+    每天 runs_per_day 轮，下一轮的时间带随机偏移，避免固定节奏。"""
+    settings = conn.execute(
+        """SELECT enabled, keywords, platforms, runs_per_day, posts_per_keyword, max_age_days,
+                  (next_run_at IS NULL OR next_run_at <= now()) AS due FROM leadgen.demand_settings WHERE id = 1""").fetchone()
+    if not settings or not ((settings["enabled"] and settings["due"]) or force):
+        return None
+    accounts = conn.execute(
+        "SELECT id, platform, account_name FROM leadgen.publish_accounts WHERE purpose = 'search' AND login_status = 'ok' AND platform = ANY(%s) ORDER BY created_at",
+        (settings["platforms"],)).fetchall()
+    if not accounts:
+        return None
+    gap_hours = 24 / settings["runs_per_day"]
+    # 先把下一轮的时间定下来：这一轮中途出错也不会马上重跑。
+    conn.execute("UPDATE leadgen.demand_settings SET next_run_at = now() + make_interval(mins => %s) WHERE id = 1",
+                 (int(gap_hours * 60 * random.uniform(0.75, 1.25)),))
+    notes = []
+    for account in accounts:
+        run = conn.execute("INSERT INTO leadgen.demand_runs (platform, account_id, keyword_count) VALUES (%s, %s, %s) RETURNING id",
+                           (account["platform"], account["id"], len(settings["keywords"]))).fetchone()
+        try:
+            result = demand_search.search(account["platform"], settings["keywords"], settings["posts_per_keyword"], settings["max_age_days"])
+            fresh = store_demand_rows(conn, account["platform"], result["rows"])
+        except Exception as error:
+            result, fresh = {"ok": False, "note": f"搜索出错：{error}"[:200], "rows": []}, 0
+        note = f"{PLATFORM_LABEL[account['platform']]}：{result['note']}" + (f"，新的 {fresh} 条" if result["ok"] else "")
+        conn.execute("UPDATE leadgen.demand_runs SET finished_at = now(), found_count = %s, new_count = %s, ok = %s, note = %s WHERE id = %s",
+                     (len(result["rows"]), fresh, result["ok"], note[:300], run["id"]))
+        if not result["ok"]:
+            # 连着两轮都不成功，多半是登录过期或被要求验证：标成要扫码，提醒人，不再自己重试。
+            failed = conn.execute(
+                "SELECT count(*) AS n FROM (SELECT ok FROM leadgen.demand_runs WHERE account_id = %s ORDER BY started_at DESC LIMIT 2) last WHERE ok IS FALSE",
+                (account["id"],)).fetchone()["n"]
+            if failed >= 2:
+                conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
+                notify(conn, "搜索专用账号要重新登录", f"“{account['account_name']}”连着两次没搜成功，已停止搜索。请到“发布账号”里重新扫码。", "/accounts.html")
+        notes.append(note)
+    summary = "；".join(notes)[:300]
+    conn.execute("UPDATE leadgen.demand_settings SET last_run_at = now(), last_run_note = %s WHERE id = 1", (summary,))
+    print(f"需求发现：{summary}")
+    return summary
+
+
 def process_tenders(conn: psycopg.Connection, force: bool = False) -> str | None:
     """读一遍黄埔区工程建设的中标结果，把没见过的记下来。只在走直连通道时读。"""
     due = conn.execute(
@@ -878,7 +952,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "channels_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py", HERE / "gov_tenders.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "channels_reader.py", HERE / "demand_search.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py", HERE / "gov_tenders.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
@@ -915,6 +989,7 @@ def main(argv: list[str]) -> int:
                         process_metrics(conn)
                         process_permits(conn)
                         process_tenders(conn)
+                        process_demand(conn)
                         time.sleep(POLL_SECONDS)
             except psycopg.OperationalError:
                 print("数据库连接断了，15 秒后重新连接。")

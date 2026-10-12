@@ -32,6 +32,7 @@
         <div class="ph"><div><h3>添加账号</h3><p>先在这里登记，再点“扫码登录”</p></div></div>
         <form class="pb form-grid" id="add-form">
           <div class="field"><label for="a-platform">平台</label><select id="a-platform" name="platform"><option value="douyin">抖音</option><option value="channels">视频号</option><option value="xiaohongshu">小红书</option><option value="moments">朋友圈</option></select></div>
+          <div class="field"><label for="a-purpose">用途</label><select id="a-purpose" name="purpose"><option value="publish">发布内容</option><option value="search">只用来搜索（需求发现用的小号）</option></select></div>
           <div class="field"><label for="a-name">账号名称（自己认得出就行）</label><input id="a-name" name="account_name" maxlength="40" required></div>
           <div class="field"><label for="a-limit">每天最多发几条</label><input id="a-limit" name="daily_limit" type="number" min="1" max="50" value="5" required></div>
           <div class="wide form-actions"><span class="form-error" id="add-error" role="alert"></span><button class="btn" type="button" id="cancel-add">取消</button><button class="btn pri" type="submit">添加</button></div>

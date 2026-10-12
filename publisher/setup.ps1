@@ -37,4 +37,17 @@ $python = Join-Path $venv 'Scripts\python.exe'
 & $python (Join-Path $here 'apply_patches.py')
 if ($LASTEXITCODE -ne 0) { throw 'A patch for social-auto-upload no longer applies; check apply_patches.py' }
 & $python -m patchright install chromium
+# Demand discovery: MediaCrawler (non-commercial learning licence) searches public posts with a search-only account.
+# It gets its own virtualenv because its dependencies are heavy and unrelated to the uploader. Pinned to one commit;
+# demand_search.py changes two of its settings before every run (own browser instead of attaching to an open Chrome).
+$mc = Join-Path $here 'vendor\mediacrawler'
+$mcVenv = Join-Path $here '.venv-mc'
+$mcCommit = '156c602c8d689266e6c5e9130b36f0b70495f5f0'
+if (-not (Test-Path (Join-Path $mc '.git'))) { git clone --quiet https://github.com/NanmiCoder/MediaCrawler.git $mc }
+git -C $mc fetch --quiet origin $mcCommit
+git -C $mc checkout --quiet --detach $mcCommit
+Write-Output "MediaCrawler pinned at $((git -C $mc rev-parse --short HEAD))"
+if (-not (Test-Path (Join-Path $mcVenv 'Scripts\python.exe'))) { py -3.12 -m venv $mcVenv }
+& (Join-Path $mcVenv 'Scripts\python.exe') -m pip install --quiet -r (Join-Path $mc 'requirements.txt')
+& (Join-Path $mcVenv 'Scripts\python.exe') -m playwright install chromium
 Write-Output 'setup complete'

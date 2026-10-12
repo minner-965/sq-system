@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>需求发现 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>需求发现</h1>
+          <p id="sub">在小红书、抖音上公开发帖找铺位、找写字楼、找酒店、找餐厅的人</p>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" id="open-settings" hidden>搜索关键词</button>
+          <button class="btn pri" type="button" id="search-now" data-requires="write">现在搜一次</button>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+      <div class="warn-box" id="not-ready" hidden></div>
+
+      <section class="card settings" id="settings" hidden>
+        <div class="ph"><div><h3>搜索关键词</h3><p>一行一个，写成“地方 + 想找什么”，例如“黄埔 写字楼 租”。每天自动搜两次，每个词最多看 20 条最近 30 天的帖子</p></div></div>
+        <form class="pb form-grid" id="settings-form">
+          <div class="field wide"><label for="keywords">关键词 <small id="keyword-count"></small></label><textarea id="keywords" name="keywords" rows="10"></textarea></div>
+          <label class="check wide"><input type="checkbox" id="enabled" name="enabled">每天自动搜索</label>
+          <div class="wide form-actions"><span class="form-error" id="settings-error" role="alert"></span><button class="btn" type="button" id="cancel-settings">取消</button><button class="btn pri" type="submit">保存</button></div>
+        </form>
+      </section>
+
+      <div class="card">
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="处理状态" id="tabs"></div>
+        </div>
+        <div id="list"><div class="state">正在加载</div></div>
+      </div>
+      <p class="foot-note" id="foot">&nbsp;</p>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/demand.js"></script>
+</body>
+</html>
