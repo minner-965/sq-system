@@ -46,7 +46,7 @@ export function createPublishingRouter({ pool, auth, llm, mediaDir }) {
   }));
   router.get('/materials/:materialId', ...read, handle(async (req, res) => res.json(await getMaterial(pool, req.params.materialId))));
   router.post('/materials/:materialId/platforms', ...write, handle(async (req, res) => {
-    res.status(201).json(await addPlatform(pool, { materialId: req.params.materialId, platform: String(req.body?.platform || '') }));
+    res.status(201).json(await addPlatform(pool, { materialId: req.params.materialId, platform: String(req.body?.platform || ''), user: req.managementUser }));
   }));
   router.post('/materials/:materialId/drafts', ...write, handle(async (req, res) => {
     res.json(await generateDrafts(pool, { materialId: req.params.materialId, platform: req.body?.platform || null, user: req.managementUser, llm }));

@@ -108,7 +108,7 @@ export async function createMaterial(pool, { user, body, files, mediaDir }) {
 }
 
 /** Opens one more draft for a material that is already in the system, so the same files can go to another platform. */
-export async function addPlatform(pool, { materialId, platform }) {
+export async function addPlatform(pool, { materialId, platform, user }) {
   requireUuid(materialId, 'MATERIAL_NOT_FOUND');
   if (!PLATFORMS[platform]) throw fail(400, 'MATERIAL_PLATFORM_INVALID', '目标平台不正确');
   return inTransaction(pool, async client => {
@@ -119,7 +119,12 @@ export async function addPlatform(pool, { materialId, platform }) {
     if (rowCount) throw fail(409, 'PLATFORM_ALREADY_ADDED', `这条素材已经有${PLATFORMS[platform].label}的内容了`);
     const { rows: [task] } = await client.query('INSERT INTO leadgen.publish_tasks (material_id, platform) VALUES ($1, $2) RETURNING id', [materialId, platform]);
     await client.query('UPDATE leadgen.materials SET target_platforms = array_append(target_platforms, $2) WHERE id = $1 AND NOT ($2 = ANY(target_platforms))', [materialId, platform]);
-    return { task_id: task.id, platform };
+    // 重发：这个平台上有删掉的那一条时，把它的文案带过来当草稿，人看过再确认。
+    const { rows: [earlier] } = await client.query(`
+      SELECT title, body, topics FROM leadgen.publish_tasks WHERE material_id = $1 AND platform = $2 AND status = 'removed' AND body IS NOT NULL
+      ORDER BY removed_at DESC NULLS LAST LIMIT 1`, [materialId, platform]);
+    if (earlier && user) await saveVersion(client, task, { title: earlier.title, body: earlier.body, topics: earlier.topics || [] }, 'manual', user.id);
+    return { task_id: task.id, platform, copied: Boolean(earlier && user) };
   });
 }
 
@@ -171,7 +176,7 @@ export async function getMaterial(pool, materialId) {
       FROM leadgen.publish_tasks t
       LEFT JOIN leadgen.publish_accounts a ON a.id = t.account_id
       LEFT JOIN leadgen.users c ON c.id = t.confirmed_by
-      WHERE t.material_id = $1 ORDER BY array_position(ARRAY['douyin', 'channels', 'xiaohongshu', 'moments'], t.platform)`, [materialId])
+      WHERE t.material_id = $1 ORDER BY array_position(ARRAY['douyin', 'channels', 'xiaohongshu', 'moments'], t.platform), (t.status = 'removed'), t.created_at DESC`, [materialId])
   ]);
   const floors = await floorPricesFor(pool, property);
   return {
