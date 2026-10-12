@@ -38,7 +38,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v17"
+VERSION = "v18"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -429,8 +429,9 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
     linked = conn.execute(
         "SELECT id, platform_post_id, title, post_url FROM leadgen.publish_tasks WHERE account_id = %s AND platform_post_id IS NOT NULL", (account["id"],)).fetchall()
     unlinked = conn.execute(
-        """SELECT id, title FROM leadgen.publish_tasks WHERE account_id = %s AND status = 'published' AND platform_post_id IS NULL
-           ORDER BY published_at DESC""", (account["id"],)).fetchall()
+        """SELECT t.id, t.material_id, t.title, t.body, t.confirmed_by, m.topic FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
+           WHERE t.account_id = %s AND t.status = 'published' AND t.platform_post_id IS NULL
+           ORDER BY t.published_at DESC""", (account["id"],)).fetchall()
     data = asyncio.run(read_douyin(account["id"], {row["platform_post_id"] for row in linked}))
     if not data["logged_in"]:
         conn.execute("UPDATE leadgen.publish_accounts SET login_status = 'expired', updated_at = now() WHERE id = %s", (account["id"],))
@@ -446,6 +447,12 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
             newly_linked += 1
             conn.execute("UPDATE leadgen.publish_tasks SET platform_post_id = %s, post_url = %s, updated_at = now() WHERE id = %s",
                          (match["item_id"], clean_link(match["link"]), task["id"]))
+            # 发完读回来对一遍：平台上存的文字里要有确认稿正文的开头。对不上就提醒人，不悄悄算成功。
+            wanted = "".join((task["body"] or "").split())[:12]
+            if wanted and wanted not in "".join(match["title"].split()):
+                print(f"发出去的内容和确认稿不一致：{task['topic']}（平台上没有正文）")
+                notify(conn, "发出去的抖音内容缺了正文", f"“{task['topic']}”已经发出，但平台上只有标题，没有确认稿里的正文。请到抖音上看一下，需要的话删掉重发。",
+                       f"/publishing.html?id={task['material_id']}", task["confirmed_by"])
     if newly_linked:
         # 刚对上的帖子这一轮还没取评论，马上再读一次。
         linked = conn.execute(
