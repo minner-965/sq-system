@@ -12,7 +12,8 @@ const canWrite = shell.user.can_write;
 const owners = {};
 
 const DEMAND_CHECKS = [['confirmed', '确有需求'], ['later', '以后可能有'], ['none', '没有需求'], ['unreachable', '没联系上']];
-const SOURCE_NAME = { douyin: '抖音', xiaohongshu: '小红书', channels: '视频号', moments: '朋友圈' };
+const SOURCE_NAME = { douyin: '抖音', xiaohongshu: '小红书', channels: '视频号', moments: '朋友圈', tender: '工程中标公告', lead_form: '扫码留资' };
+const SOURCE_KIND = { tender: '黄埔区工程的中标单位', lead_form: '客人扫码留的联系方式' };
 const dateTime = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const distance = metres => (metres >= 1000 ? `${(metres / 1000).toFixed(1)} 公里` : `${metres} 米`);
 // <input type="datetime-local"> 用的是本地时间，不带时区。
@@ -35,7 +36,7 @@ function notice(text) {
 function renderFacts(company) {
   document.title = `${company.company_name} · 恒兆广场招商系统`;
   byId('name').textContent = company.company_name;
-  byId('sub').textContent = `${company.industry || (SOURCE_NAME[company.source] ? '来自评论和私信' : '企业')} · 收录于 ${new Date(company.created_at).toLocaleDateString('zh-CN')}`;
+  byId('sub').textContent = `${company.industry || (SOURCE_KIND[company.source] || (SOURCE_NAME[company.source] ? '来自评论和私信' : '企业'))} · 收录于 ${new Date(company.created_at).toLocaleDateString('zh-CN')}`;
   const fact = (label, value) => `<div><span>${label}</span><b>${value || '—'}</b></div>`;
   byId('facts').innerHTML = [
     fact('地址', escapeHtml(company.address)),

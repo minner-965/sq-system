@@ -30,6 +30,7 @@ from xiaohongshu_reader import read_xiaohongshu_notes
 from phone_driver import PhoneNotReady, phone_status, post_moments
 import direct_proxy
 from gov_permits import read_permits
+from gov_tenders import read_tenders
 from douyin_reader import ReplyError, read_douyin, read_douyin_metrics, read_stranger_messages, send_comment_reply, send_stranger_message
 
 HERE = Path(__file__).parent.resolve()
@@ -37,7 +38,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v16"
+VERSION = "v17"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -645,6 +646,37 @@ def process_permits(conn: psycopg.Connection, force: bool = False) -> str | None
     return note
 
 
+def process_tenders(conn: psycopg.Connection, force: bool = False) -> str | None:
+    """读一遍黄埔区工程建设的中标结果，把没见过的记下来。只在走直连通道时读。"""
+    due = conn.execute(
+        "SELECT tenders_checked_at IS NULL OR tenders_checked_at < now() - make_interval(hours => %s) AS due FROM leadgen.publisher_heartbeat WHERE id = 1",
+        (PERMIT_HOURS,)).fetchone()["due"]
+    if not (due or force):
+        return None
+    if not os.environ.get("HZ_DIRECT_PROXY"):
+        note = "没有读：浏览器没有走本机宽带直连"
+    else:
+        try:
+            known = {row["notice_id"] for row in conn.execute("SELECT notice_id FROM leadgen.tender_awards WHERE created_at > now() - interval '120 days'").fetchall()}
+            data = asyncio.run(read_tenders(known))
+            for row in data["rows"]:
+                conn.execute(
+                    """INSERT INTO leadgen.tender_awards (notice_id, title, section_name, project_type, owner_name, winner_name, amount, work_kind, published_at, source_url)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (notice_id) DO NOTHING""",
+                    (row["notice_id"], row["title"], row["section_name"], row["project_type"], row["owner_name"], row["winner_name"], row["amount"],
+                     row["work_kind"], row["published_at"], row["source_url"]))
+            note = data["note"]
+            fresh = [row for row in data["rows"] if row["work_kind"] == "construction" and row["winner_name"]]
+            if fresh and known:
+                # 第一次读是把现有的收进来，不提醒；之后有新的施工类中标才提醒。
+                notify(conn, "黄埔有新的工程中标", "；".join(f"{row['winner_name']}（{(row['section_name'] or row['title'])[:24]}）" for row in fresh[:3]), "/discovery.html#tenders")
+        except Exception as error:
+            note = f"读取出错：{error}"[:200]
+    conn.execute("UPDATE leadgen.publisher_heartbeat SET tenders_checked_at = now(), tenders_note = %s WHERE id = 1", (note,))
+    print(f"工程中标结果：{note}")
+    return note
+
+
 def process_replies(conn: psycopg.Connection) -> None:
     """把确认过的回复发到平台上：评论回复，和陌生人私信的回复（人确认的，或固定话术自动回的）。
     一轮只发一条；发不出去就标明原因，让招商员复制到手机上回，不重试。私信两条之间至少隔几分钟。
@@ -709,7 +741,7 @@ def recover_interrupted(conn: psycopg.Connection) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "run"
-    if command in ("login", "check", "sync", "metrics", "permits", "once", "run"):
+    if command in ("login", "check", "sync", "metrics", "permits", "tenders", "once", "run"):
         print(ensure_direct())
     if command == "login" and len(argv) == 3:
         return command_login(argv[2])
@@ -719,6 +751,11 @@ def main(argv: list[str]) -> int:
         # 只读一遍政府公示的行政许可，不发布任何内容。
         with connect() as conn:
             process_permits(conn, force=True)
+        return 0
+    if command == "tenders":
+        # 只读一遍黄埔区的工程中标结果，不发布任何内容。
+        with connect() as conn:
+            process_tenders(conn, force=True)
         return 0
     if command == "metrics":
         # 只读一遍已发布帖子的数据，不发布任何内容。
@@ -737,7 +774,7 @@ def main(argv: list[str]) -> int:
             print(f"处理了 {process_due(conn)} 条任务。")
             return 0
     if command == "run":
-        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py"]
+        sources = [HERE / "hz_publisher.py", HERE / "douyin_reader.py", HERE / "xiaohongshu_reader.py", HERE / "phone_driver.py", HERE / "direct_proxy.py", HERE / "gov_permits.py", HERE / "gov_tenders.py"]
         loaded = [path.stat().st_mtime for path in sources]
         waiting = False
         while True:
@@ -773,6 +810,7 @@ def main(argv: list[str]) -> int:
                         process_replies(conn)
                         process_metrics(conn)
                         process_permits(conn)
+                        process_tenders(conn)
                         time.sleep(POLL_SECONDS)
             except psycopg.OperationalError:
                 print("数据库连接断了，15 秒后重新连接。")

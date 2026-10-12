@@ -5,6 +5,7 @@ import {
   createRun, getSettings, listCandidates, recentRuns, rescoreCompany, reviewCandidate, updateSettings, usageSummary
 } from './discoveryService.js';
 import { checkCompanySignals } from './signals.js';
+import { dismissTender, followTender, listTenders } from './tenders.js';
 
 export function createDiscoveryRouter({ pool, auth, providers, llm, enqueueRun }) {
   const router = express.Router();
@@ -31,6 +32,17 @@ export function createDiscoveryRouter({ pool, auth, providers, llm, enqueueRun }
   // 打电话之前，单独把这一家再查一遍。
   router.post('/companies/:companyId/signals', ...write, handle(async (req, res) => {
     res.json(await checkCompanySignals(pool, { companyId: req.params.companyId, search: providers.baiduSearch, llm, rescore: rescoreCompany }));
+  }));
+
+  // 黄埔区新中标的工程：列出来给人看，由人决定转入跟进还是不合适。
+  router.get('/tenders', ...read, handle(async (req, res) => {
+    res.json(await listTenders(pool, { status: req.query.status || 'open', kind: req.query.kind || 'construction', limit: req.query.limit }));
+  }));
+  router.post('/tenders/:tenderId/follow', ...write, handle(async (req, res) => {
+    res.json(await followTender(pool, { tenderId: req.params.tenderId, user: req.managementUser }));
+  }));
+  router.post('/tenders/:tenderId/dismiss', ...write, handle(async (req, res) => {
+    res.json(await dismissTender(pool, { tenderId: req.params.tenderId, user: req.managementUser }));
   }));
 
   router.get('/status', ...read, handle(async (_req, res) => {

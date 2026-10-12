@@ -196,5 +196,16 @@ test('a published licence is matched to a map listing by the distinctive part of
   assert.ok(sameBusiness('广州市黄埔区早来包子店', '早来包子'));
   const service = readFileSync(path.join(appRoot, 'src', 'discovery', 'signals.js'), 'utf8');
   // Re-checking a company on the web must not wipe evidence that came from the government disclosure.
-  assert.match(service, /DELETE FROM leadgen\.company_signals WHERE company_id = \$1 AND origin <> 'permit'/);
+  assert.match(service, /DELETE FROM leadgen\.company_signals WHERE company_id = \$1 AND origin IN \('web', 'name'\)/);
+});
+
+test('a tender award is shown to a person, who decides to follow it up; nothing is contacted automatically', () => {
+  const tenders = readFileSync(path.join(appRoot, 'src', 'discovery', 'tenders.js'), 'utf8');
+  assert.match(tenders, /FOLLOW_SECTORS = \['hotel_apartment', 'dining'\]/);
+  assert.match(tenders, /TENDER_ALREADY_FOLLOWED/);
+  assert.match(tenders, /'project_site', \$2, '广东省公共资源交易平台 中标结果', \$3, \$4, 'tender'/);
+  const routes = readFileSync(path.join(appRoot, 'src', 'discovery', 'discoveryRoutes.js'), 'utf8');
+  assert.match(routes, /router\.get\('\/tenders', \.\.\.read/);
+  assert.match(routes, /router\.post\('\/tenders\/:tenderId\/follow', \.\.\.write/);
+  assert.match(routes, /router\.post\('\/tenders\/:tenderId\/dismiss', \.\.\.write/);
 });
