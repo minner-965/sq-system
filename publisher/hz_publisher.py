@@ -39,7 +39,7 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v20"
+VERSION = "v21"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
@@ -461,6 +461,21 @@ def sync_account(conn: psycopg.Connection, account: dict, trigger: str = "schedu
         linked = conn.execute(
             "SELECT id, platform_post_id, title, post_url FROM leadgen.publish_tasks WHERE account_id = %s AND platform_post_id IS NOT NULL", (account["id"],)).fetchall()
         data = asyncio.run(read_douyin(account["id"], {row["platform_post_id"] for row in linked}))
+
+    # 之前对上过的帖子，现在账号的作品列表里没有了：多半是被删或被平台下架。提醒一次，由人去看；系统不改它的状态。
+    # （作品列表是整个读完的；一条都没读到时不判断，免得读取出问题时乱报。）
+    on_platform = {item["item_id"] for item in data["items"]}
+    if on_platform:
+        gone = conn.execute(
+            """SELECT t.material_id, t.confirmed_by, m.topic FROM leadgen.publish_tasks t JOIN leadgen.materials m ON m.id = t.material_id
+               WHERE t.account_id = %s AND t.status = 'published' AND t.platform_post_id IS NOT NULL AND NOT (t.platform_post_id = ANY(%s))""",
+            (account["id"], list(on_platform))).fetchall()
+        for task in gone:
+            link = f"/publishing.html?id={task['material_id']}"
+            title = "发出去的抖音内容在平台上找不到了"
+            if not conn.execute("SELECT 1 FROM leadgen.notifications WHERE title = %s AND link = %s", (title, link)).fetchone():
+                notify(conn, title, f"“{task['topic']}”之前已发出，现在抖音后台里没有这条了。如果是自己删的，请在“内容发布”里标记“已在平台上删除”；不是的话请到手机上看有没有下架提醒。",
+                       link, task["confirmed_by"])
 
     by_post = {row["platform_post_id"]: row for row in linked}
     new_messages = 0
