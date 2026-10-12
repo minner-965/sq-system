@@ -27,7 +27,27 @@
 
 | # | 要做的 | 为什么 | 现在的状态 |
 |---|---|---|---|
-| 0 | 把这台电脑的 Clash Verge 改成“国内网站直连”（规则模式，国内域名和 IP 走直连），只让需要的国外网站走代理 | 现在连国内网站看到的都是美国谷歌云的地址（35.212.140.140）。政府公示网站因此把这个地址拉黑了；抖音每次发布要短信验证、账号被登出，很可能也是因为平台看到账号在美国机房登录 | Claude 不改系统和代理设置，要 Simon 自己改。改完告诉 Claude，用 myip.ipip.net 验证显示国内地址后，再重新试政府公示和中标公告两个来源 |
+| 0 | 把这台电脑的 Clash Verge 改成“国内网站直连”（规则模式，国内域名和 IP 走直连），只让需要的国外网站走代理 | 现在连国内网站看到的都是美国谷歌云的地址（35.212.140.140）。政府公示网站因此把这个地址拉黑了；抖音每次发布要短信验证、账号被登出，很可能也是因为平台看到账号在美国机房登录 | Claude 不改系统和代理设置，要 Simon 自己改。直接切到规则模式会让 Claude 用不了（Simon 2026-10-12 试过），所以要在规则模式里先加几条规则让 Claude 走代理，见下面的做法。改完告诉 Claude，用 myip.ipip.net 验证显示国内地址后，再重新试政府公示和中标公告两个来源 |
+
+**第 0 项的做法（Clash Verge）**
+
+目标：Claude 照常走代理，国内网站直连。在“订阅”里右键当前订阅 → “编辑规则”，在最前面加下面几条（`代理组名` 换成你订阅里平时选节点的那个组的名字），保存后把模式切到“规则”：
+
+```
+PROCESS-NAME,claude.exe,代理组名
+PROCESS-NAME,Claude.exe,代理组名
+DOMAIN-SUFFIX,anthropic.com,代理组名
+DOMAIN-SUFFIX,claude.ai,代理组名
+DOMAIN-SUFFIX,claude.com,代理组名
+DOMAIN-SUFFIX,claudeusercontent.com,代理组名
+DOMAIN-SUFFIX,douyin.com,DIRECT
+DOMAIN-SUFFIX,xiaohongshu.com,DIRECT
+DOMAIN-SUFFIX,qq.com,DIRECT
+DOMAIN-SUFFIX,gov.cn,DIRECT
+GEOIP,CN,DIRECT
+```
+
+切过去以后如果 Claude 断了，切回“全局”就恢复，什么都不会丢。验证：浏览器打开 myip.ipip.net 显示国内地址，同时 Claude 还能正常对话，就是改对了。
 
 ## 三、需要 Simon 动手做一次的
 
