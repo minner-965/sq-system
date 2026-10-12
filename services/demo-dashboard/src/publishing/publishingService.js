@@ -114,7 +114,8 @@ export async function addPlatform(pool, { materialId, platform }) {
   return inTransaction(pool, async client => {
     const { rows: [material] } = await client.query('SELECT id FROM leadgen.materials WHERE id = $1 FOR UPDATE', [materialId]);
     if (!material) throw fail(404, 'MATERIAL_NOT_FOUND', '没有找到这条素材');
-    const { rowCount } = await client.query('SELECT 1 FROM leadgen.publish_tasks WHERE material_id = $1 AND platform = $2', [materialId, platform]);
+    // 已在平台上删除的不算：删掉以后可以重新出一条。
+    const { rowCount } = await client.query(`SELECT 1 FROM leadgen.publish_tasks WHERE material_id = $1 AND platform = $2 AND status <> 'removed'`, [materialId, platform]);
     if (rowCount) throw fail(409, 'PLATFORM_ALREADY_ADDED', `这条素材已经有${PLATFORMS[platform].label}的内容了`);
     const { rows: [task] } = await client.query('INSERT INTO leadgen.publish_tasks (material_id, platform) VALUES ($1, $2) RETURNING id', [materialId, platform]);
     await client.query('UPDATE leadgen.materials SET target_platforms = array_append(target_platforms, $2) WHERE id = $1 AND NOT ($2 = ANY(target_platforms))', [materialId, platform]);
