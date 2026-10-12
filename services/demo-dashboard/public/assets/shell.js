@@ -3,6 +3,7 @@
 const ICONS = {
   overview: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
   discovery: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  demand: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/>',
   customers: '<path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 20v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   properties: '<path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/>',
   publishing: '<path d="M4 4h16v12H5.2L4 17.5z"/><path d="M8 9h8M8 12h5"/>',
@@ -19,6 +20,7 @@ const NAV = [
   { key: 'overview', label: '工作台总览', short: '总览', href: '/' },
   { group: '招商' },
   { key: 'discovery', label: '企业发现', short: '发现', href: '/discovery.html' },
+  { key: 'demand', label: '需求发现', href: '/demand.html' },
   { key: 'customers', label: '招商客户', short: '客户', href: '/customers.html' },
   { key: 'properties', label: '房源与服务' },
   { group: '内容' },

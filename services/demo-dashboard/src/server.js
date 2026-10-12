@@ -23,6 +23,8 @@ import { createReportRouter } from './reports/reportRoutes.js';
 import { createLlmClient } from './llm/llmClient.js';
 import { createPublishingRouter } from './publishing/publishingRoutes.js';
 import { createInboxRouter } from './inbox/inboxRoutes.js';
+import { createDemandRouter } from './demand/demandRoutes.js';
+import { screenPending } from './demand/demandService.js';
 import { classifyPending } from './inbox/inboxService.js';
 
 const { Pool } = pg;
@@ -86,7 +88,8 @@ const jobQueue = createPhase5Queue({
     [PHASE5_QUEUES.REPLAY_RULE_VERSION]: scoreCompany,
     [PHASE5_QUEUES.DISCOVER_COMPANIES]: discoverCompanies,
     // 读取程序写进来的评论和私信，每分钟分一次类。
-    [PHASE5_QUEUES.CLASSIFY_INTERACTIONS]: () => classifyPending(pool, { llm })
+    // 同一趟里把搜索程序找到的帖子也筛一遍。
+    [PHASE5_QUEUES.CLASSIFY_INTERACTIONS]: async () => { await classifyPending(pool, { llm }); await screenPending(pool, { llm }); }
   }
 });
 
@@ -151,6 +154,7 @@ function mountWorkspace(auth) {
   app.use('/api', createReportRouter({ pool, auth }));
   app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
   app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
+  app.use('/api/demand', createDemandRouter({ pool, auth, llm }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })

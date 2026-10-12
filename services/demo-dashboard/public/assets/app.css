@@ -183,7 +183,7 @@ a.btn{display:inline-block}
 .msg-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .msg-text{font-size:14px;white-space:pre-wrap;word-break:break-word}
 .msg-intent{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.msg-intent select{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit;font-size:12px;background:#fff}
+.msg-intent select,.msg-actions select{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit;font-size:12px;background:#fff}
 .reply textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 12px;font:inherit;font-size:13px;resize:vertical}
 .reply textarea:focus{outline:0;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
 .msg-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}

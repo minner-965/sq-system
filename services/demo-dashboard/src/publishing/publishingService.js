@@ -427,10 +427,13 @@ export async function addAccount(pool, input) {
   if (!name || name.length > 40) throw fail(400, 'ACCOUNT_NAME_INVALID', '请填写账号名称（不超过 40 字）');
   const limit = Number(input.daily_limit ?? (input.platform === 'moments' ? 3 : 5));
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw fail(400, 'ACCOUNT_LIMIT_INVALID', '每日上限应为 1–50');
+  // 搜索专用的小号只用来搜公开帖子，不发内容；只有小红书和抖音能搜。
+  const purpose = input.purpose === 'search' ? 'search' : 'publish';
+  if (purpose === 'search' && !['xiaohongshu', 'douyin'].includes(input.platform)) throw fail(400, 'ACCOUNT_PLATFORM_INVALID', '搜索专用的账号只能是小红书或抖音');
   if (input.platform === 'moments' && limit > MOMENTS_DAILY_MAX) throw fail(400, 'ACCOUNT_LIMIT_INVALID', `朋友圈每天最多 ${MOMENTS_DAILY_MAX} 条`);
   try {
     const { rows: [row] } = await pool.query(`
-      INSERT INTO leadgen.publish_accounts (platform, account_name, daily_limit) VALUES ($1, $2, $3) RETURNING id`, [input.platform, name, limit]);
+      INSERT INTO leadgen.publish_accounts (platform, account_name, daily_limit, purpose) VALUES ($1, $2, $3, $4) RETURNING id`, [input.platform, name, limit, purpose]);
     return row;
   } catch (error) {
     if (error.code === '23505') throw fail(409, 'ACCOUNT_EXISTS', '这个账号已经添加过');
