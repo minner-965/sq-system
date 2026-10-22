@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 import { mkdir, rename, copyFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { CONTENT_TYPES, PLATFORMS, findForbidden, normalizeDraft, writeDraft } from './copywriter.js';
+import { loadHotelFacts } from '../hotels/hotelService.js';
 
 export const MAX_IMAGES = 18;
 export const MAX_VIDEOS = 1;
@@ -203,27 +204,8 @@ async function saveVersion(client, task, draft, source, userId) {
 }
 
 /** Writes a draft for each target platform that is still editable (or just the one asked for). Earlier versions are kept. */
-/** 酒店档案里的事实，给酒店类内容用。没有价格（房价不在档案里）。 */
-async function hotelFacts(pool) {
-  const { rows: [hotel] } = await pool.query(`
-    SELECT h.name, h.brand_note, h.address, h.room_count, h.opened_year, h.check_in_time, h.check_out_time, h.location_notes, h.room_highlights,
-           h.facilities, h.meeting_room_area_sqm, h.meeting_room_capacity_min, h.meeting_room_capacity_max,
-           (SELECT array_agg(r.name || COALESCE('（' || trim_scale(r.area_sqm)::text || ' ㎡）', '') ORDER BY r.sort_order) FROM leadgen.hotel_room_types r WHERE r.hotel_id = h.id) AS rooms
-    FROM leadgen.hotels h ORDER BY h.name LIMIT 1`);
-  if (!hotel) return [];
-  const list = value => (value || []).join('；');
-  return [
-    `酒店：${hotel.name}${hotel.brand_note ? `，${hotel.brand_note}` : ''}`,
-    `酒店地址：${hotel.address}`,
-    hotel.room_count ? `客房 ${hotel.room_count} 间${hotel.opened_year ? `，${hotel.opened_year} 年开业` : ''}` : null,
-    hotel.rooms?.length ? `房型：${list(hotel.rooms)}` : null,
-    hotel.room_highlights?.length ? `客房特点：${list(hotel.room_highlights)}` : null,
-    hotel.facilities?.length ? `设施：${list(hotel.facilities)}` : null,
-    hotel.location_notes?.length ? `位置：${list(hotel.location_notes)}` : null,
-    hotel.meeting_room_area_sqm ? `会议室 ${Number(hotel.meeting_room_area_sqm)} ㎡，可容纳 ${hotel.meeting_room_capacity_min}–${hotel.meeting_room_capacity_max} 人` : null,
-    hotel.check_in_time ? `入住 ${hotel.check_in_time}，退房 ${hotel.check_out_time}` : null
-  ].filter(Boolean);
-}
+/** 酒店档案里的事实，给酒店类内容用；“酒店资料”里填了的对外房价也在里面。 */
+export const hotelFacts = pool => loadHotelFacts(pool);
 
 export async function generateDrafts(pool, { materialId, platform = null, user, llm, env = process.env }) {
   if (!llm.configured) throw fail(409, 'LLM_KEY_MISSING', '还没有配置大模型，暂时不能生成文案，可以先手写');

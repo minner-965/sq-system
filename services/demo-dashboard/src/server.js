@@ -26,6 +26,7 @@ import { createPublishingRouter } from './publishing/publishingRoutes.js';
 import { createInboxRouter } from './inbox/inboxRoutes.js';
 import { createDemandRouter } from './demand/demandRoutes.js';
 import { createUserRouter } from './users/userRoutes.js';
+import { createHotelRouter } from './hotels/hotelRoutes.js';
 import { screenPending } from './demand/demandService.js';
 import { classifyPending } from './inbox/inboxService.js';
 
@@ -162,6 +163,7 @@ function mountWorkspace(auth) {
   app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
   app.use('/api/demand', createDemandRouter({ pool, auth, llm }));
   app.use('/api/users', createUserRouter({ pool, auth, credentialsFile: accountsFile }));
+  app.use('/api/hotels', createHotelRouter({ pool, auth }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })
