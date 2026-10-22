@@ -14,7 +14,7 @@
       <div class="head">
         <div>
           <h1>系统设置</h1>
-          <p>评论和私信里的意向消息分给谁、哪些词算意向</p>
+          <p>人员和权限；评论和私信里的意向消息分给谁、哪些词算意向</p>
         </div>
       </div>
 
@@ -24,11 +24,20 @@
       </div>
       <div class="notice" id="notice" role="status" hidden></div>
 
+      <section class="card people" id="people" aria-labelledby="people-title" hidden>
+        <div class="ph">
+          <div><h3 id="people-title">人员和权限</h3><p>每个人的角色和负责板块；忘了密码时在这里重置</p></div>
+          <button class="btn pri" type="button" id="people-add">新建账号</button>
+        </div>
+        <div class="table-wrap" id="people-body"><div class="state">正在加载</div></div>
+        <p class="meta people-roles">系统负责人：全部功能，能看底价、改设置。老板：全部板块只看不改。运营：全部板块，负责内容发布、互动收件箱和素材库。销售：只看和跟进自己负责的板块。</p>
+      </section>
+
       <div id="body"><div class="card"><div class="state">正在加载</div></div></div>
 
       <form id="form" hidden>
         <section class="card settings">
-          <div class="ph"><div><h3>意向消息分给谁</h3><p>按帖子的内容类型分；不指定时由管理员处理</p></div></div>
+          <div class="ph"><div><h3>意向消息分给谁</h3><p>按帖子的内容类型分；不指定时由系统负责人处理</p></div></div>
           <div class="pb form-grid">
             <div class="field"><label for="s-property">房源招租的帖子</label><select id="s-property" name="assignee_property"></select></div>
             <div class="field"><label for="s-event">活动和园区动态的帖子</label><select id="s-event" name="assignee_event"></select></div>
@@ -70,6 +79,28 @@
       </form>
     </main>
   </div>
+  <dialog class="sheet" id="person" aria-labelledby="person-title">
+    <div class="sheet-head"><h3 id="person-title">修改账号</h3><button class="btn sm" type="button" id="person-close">关闭</button></div>
+    <form class="sheet-body" id="person-form" novalidate>
+      <div class="field"><label for="p-name">姓名或称呼</label><input id="p-name" name="display_name" maxlength="20" autocomplete="off" required></div>
+      <div class="field" id="p-username-field"><label for="p-username">登录名</label><input id="p-username" name="username" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="小写字母或数字，例如 wang"></div>
+      <div class="field"><label for="p-role">角色</label><select id="p-role" name="role_key"></select><p class="meta" id="p-role-note"></p></div>
+      <fieldset class="field" id="p-sectors-field"><legend>负责的板块</legend><div id="p-sectors"></div></fieldset>
+      <p class="meta" id="p-new-note" hidden>保存后会生成一个初始密码，只显示一次。</p>
+      <div class="form-actions"><span class="form-error" id="person-error" role="alert"></span><button class="btn pri" type="submit" id="person-save">保存</button></div>
+    </form>
+  </dialog>
+  <dialog class="sheet" id="secret" aria-labelledby="secret-title">
+    <div class="sheet-head"><h3 id="secret-title">新密码</h3><button class="btn sm" type="button" id="secret-close">关闭</button></div>
+    <div class="sheet-body">
+      <p id="secret-who"></p>
+      <div class="secret-row">
+        <input id="secret-value" readonly aria-label="新密码" spellcheck="false">
+        <button class="btn pri" type="button" id="secret-copy">复制</button>
+      </div>
+      <p class="secret-warn">密码只显示这一次，关闭后就看不到了。请复制后当面或私信交给本人。</p>
+    </div>
+  </dialog>
   <nav class="mbar" id="mbar" aria-label="主导航"></nav>
   <script type="module" src="/assets/settings.js"></script>
 </body>

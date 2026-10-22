@@ -1,6 +1,7 @@
 // 报表：招商漏斗、渠道效果、人员工作量。都是直接从业务记录里数出来的，没有估算。
 // 需求见 docs/hz/执行计划_V1.2.md 的 WP09。
 import ExcelJS from 'exceljs';
+import { seesOnlyOwnWorkload } from '../auth/roles.js';
 
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
 const STAGES = ['new', 'contacted', 'viewing', 'negotiating', 'signed'];
@@ -102,7 +103,7 @@ async function channels(pool, period) {
   return items;
 }
 
-/** What each person did in the period. Leasing staff see only their own row. */
+/** What each person did in the period. Sales (and the older leasing role) see only their own row. */
 async function workload(pool, period, sectors, user) {
   const { rows } = await pool.query(`
     WITH people AS (
@@ -135,7 +136,7 @@ async function workload(pool, period, sectors, user) {
     FROM people p LEFT JOIN acts a ON a.user_id = p.id LEFT JOIN owned o ON o.user_id = p.id
     LEFT JOIN replies r ON r.user_id = p.id LEFT JOIN posts s ON s.user_id = p.id
     ORDER BY (COALESCE(a.calls, 0) + COALESCE(a.wechats, 0) + COALESCE(a.visits, 0) + COALESCE(a.viewings, 0) + COALESCE(a.notes, 0)) DESC, p.display_name`,
-  [period.from, period.to, sectors, user.role === 'LEASING' ? user.id : null]);
+  [period.from, period.to, sectors, seesOnlyOwnWorkload(user) ? user.id : null]);
   return rows.map(row => ({ ...row, follow_ups: row.calls + row.wechats + row.visits + row.viewings + row.notes }));
 }
 
@@ -173,7 +174,7 @@ export async function getReport(pool, { user, sectors, query }) {
   const [funnelData, channelData, people, accuracy] = await Promise.all([
     funnel(pool, period, sectors), channels(pool, period), workload(pool, period, sectors, user), evidenceAccuracy(pool, period, sectors)
   ]);
-  return { period, funnel: funnelData, channels: channelData, workload: people, evidence: accuracy, own_row_only: user.role === 'LEASING' };
+  return { period, funnel: funnelData, channels: channelData, workload: people, evidence: accuracy, own_row_only: seesOnlyOwnWorkload(user) };
 }
 
 /** The same three tables as one workbook, one sheet each. */

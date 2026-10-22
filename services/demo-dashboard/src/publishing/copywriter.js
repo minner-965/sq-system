@@ -82,6 +82,16 @@ function facts(material, property, project) {
   return lines.join('\n');
 }
 
+const HOTEL_PRICE_LINE = /^(房价|长住价格|会议室价格)：/;
+
+/** 酒店类内容的价格要求：填了对外房价就照写，没填就只说欢迎咨询。 */
+function hotelPriceRule(material) {
+  if (material.content_type !== 'hotel') return '';
+  return (material.venue_lines || []).some(line => HOTEL_PRICE_LINE.test(line))
+    ? '\n6. 酒店价格只写资料里“房价”“长住价格”“会议室价格”几行给出的，数字照原样写（如“每晚 299 元起”），不要再写“价格欢迎咨询”；资料里没给价格的房型不写价格，不自己换算，不写折扣和优惠。'
+    : '\n6. 资料里没有酒店房价，房价只写“欢迎咨询”，不写任何房价数字。';
+}
+
 export function buildPrompt({ platform, material, property, project }) {
   const spec = PLATFORMS[platform];
   const system = `你是广州黄埔区恒兆广场的运营人员，要为${spec.label}写一条内容。
@@ -99,7 +109,7 @@ ${STYLE_GUIDES[platform]}
 2. 租金只能写“欢迎咨询”或上面给出的公开报价，不写任何优惠价、最低价、底价。
 3. 像人写的：不用“赋能”“打造”“一站式”“尽享”这类套话，不用排比口号，不写“小编”“家人们”。
 4. 结尾引导留言或私信咨询，不留电话和微信号。
-5. 以恒兆广场工作人员的身份写，可以说“带你看看”“我们这间房”。不要假装成住过的客人、租户或路人，不编造“上周我去住了”“朋友推荐”这类个人经历和体验感受。
+5. 以恒兆广场工作人员的身份写，可以说“带你看看”“我们这间房”。不要假装成住过的客人、租户或路人，不编造“上周我去住了”“朋友推荐”这类个人经历和体验感受。${hotelPriceRule(material)}
 只输出 JSON：{"title":"...","body":"...","topics":["..."]}${spec.titleMax ? '' : '，title 留空字符串'}。`;
   return [{ role: 'system', content: system }, { role: 'user', content: facts(material, property, project) }];
 }
