@@ -403,3 +403,20 @@ td.demand{min-width:240px;max-width:360px}
 .call-row{justify-content:flex-start;margin:0 0 14px}
 #call-form fieldset{border:0}
 #call-form legend{font-size:13px;color:var(--text-2);margin-bottom:6px}
+/* 素材库 */
+.select-bar{display:flex;align-items:center;gap:8px;padding:10px 20px;border-top:1px solid var(--line-soft);background:var(--primary-soft)}
+.select-bar span{margin-right:auto;font-size:13px;color:var(--primary)}
+.library-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;padding:16px 20px;border-top:1px solid var(--line-soft)}
+.library-grid .state{grid-column:1/-1}
+.tile{position:relative;margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.tile.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft)}
+.tile-media{display:block;aspect-ratio:1/1;background:var(--line-soft)}
+.tile-media img,.tile-media video{width:100%;height:100%;object-fit:cover;display:block}
+.tile .pick{position:absolute;top:8px;left:8px;z-index:1;background:#fff;border-radius:4px;padding:3px;line-height:0;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.tile .pick input{width:16px;height:16px;margin:0}
+.tile .kind{position:absolute;top:8px;right:8px;background:rgba(17,24,39,.72);color:#fff}
+.tile figcaption{display:grid;gap:6px;padding:8px 10px 10px}
+.tile-note{border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;width:100%}
+.tile-note:focus{outline:0;border-color:var(--primary)}
+.tile figcaption .btn{justify-self:start}
+@media (max-width:760px){.library-grid{grid-template-columns:repeat(2,1fr);gap:10px;padding:12px 16px}}

@@ -7,22 +7,22 @@ import { CONTENT_TYPES, PLATFORMS, findForbidden, normalizeDraft, writeDraft } f
 export const MAX_IMAGES = 18;
 export const MAX_VIDEOS = 1;
 export const MIN_GAP_MINUTES = 10;
-const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
-const VIDEO_TYPES = { 'video/mp4': '.mp4', 'video/quicktime': '.mov' };
+export const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+export const VIDEO_TYPES = { 'video/mp4': '.mp4', 'video/quicktime': '.mov' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const TASK_STATUS_NAME = Object.freeze({ draft: '待确认', confirmed: '待发布', publishing: '发布中', published: '已发布', failed: '发布失败', withdrawn: '已撤回', removed: '已在平台删除' });
 
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
 const requireUuid = (value, code) => { if (!UUID.test(String(value))) throw fail(404, code, '没有找到这条记录'); };
 
-function sha256File(file) {
+export function sha256File(file) {
   return new Promise((resolve, reject) => {
     const hash = createHash('sha256');
     createReadStream(file).on('data', chunk => hash.update(chunk)).on('end', () => resolve(hash.digest('hex'))).on('error', reject);
   });
 }
 
-async function moveFile(from, to) {
+export async function moveFile(from, to) {
   try { await rename(from, to); }
   catch (error) {
     // 临时目录和素材目录不在同一个盘时不能直接改名。
