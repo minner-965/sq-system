@@ -32,13 +32,13 @@ function card(item) {
     ${item.post_title ? `<div class="meta">来自帖子：${item.material_id ? `<a class="lk" href="/publishing.html?id=${item.material_id}">${escapeHtml(item.post_title)}</a>` : escapeHtml(item.post_title)}</div>` : ''}
     <p class="msg-text">${escapeHtml(item.content)}</p>
     <div class="msg-intent">${intentSelect}<span class="meta">${escapeHtml(item.intent_reason || '')}</span></div>
-    ${item.reply_status !== 'none' ? `<div class="meta ${item.reply_status === 'failed' ? 'late' : ''}">${item.reply_auto ? '自动回复 · ' : ''}${REPLY_STATE[item.reply_status]}${item.reply_auto && item.reply_text && item.reply_status !== 'failed' ? `：${escapeHtml(item.reply_text)}` : ''}${item.reply_error ? `：${escapeHtml(item.reply_error)}` : ''}</div>` : ''}
+    ${item.reply_status !== 'none' ? `<div class="meta ${item.reply_status === 'failed' ? 'late' : ''}">${item.reply_auto ? '自动回复 · ' : ''}${item.reply_via === 'phone' && item.reply_status === 'queued' ? '回复已确认，等专用手机发出' : item.reply_via === 'phone' && item.reply_status === 'sent' ? '回复已由专用手机发出' : REPLY_STATE[item.reply_status]}${item.reply_auto && item.reply_text && item.reply_status !== 'failed' ? `：${escapeHtml(item.reply_text)}` : ''}${item.reply_error ? `：${escapeHtml(item.reply_error)}` : ''}</div>` : ''}
     ${canWrite && item.status !== 'ignored' ? `<div class="reply">
       <textarea data-reply rows="2" maxlength="300" placeholder="${item.can_send ? '回复内容，确认后才会发出' : '回复内容，写好后点“复制”到手机上发'}"${replyLocked ? ' disabled' : ''}>${escapeHtml(item.reply_text || '')}</textarea>
       <div class="msg-actions">
         ${replyLocked ? '' : `${state.modelReady ? '<button class="btn sm" type="button" data-act="draft">生成回复</button>' : ''}
-        <button class="btn sm pri" type="button" data-act="send"${item.can_send ? '' : ` disabled title="${item.kind === 'direct_message' ? '私信要在手机上回' : '这条要在手机上回'}"`}>确认发送</button>
-        <button class="btn sm${item.can_send ? '' : ' pri'}" type="button" data-act="copy">复制</button>
+        <button class="btn sm pri" type="button" data-act="send"${item.can_send ? '' : ` disabled title="${item.kind === 'direct_message' ? '私信要在手机上回' : '这条要在手机上回'}"`}>${item.send_via_phone ? '确认，用手机发出' : '确认发送'}</button>
+        <button class="btn sm${item.can_send ? '' : ' pri'}" type="button" data-act="copy">${item.can_send ? '复制' : '复制到手机上回'}</button>
         <button class="btn sm" type="button" data-act="manual">已手动回复</button>`}
         ${item.reply_status === 'queued' ? '<button class="btn sm" type="button" data-act="copy">复制</button>' : ''}
         <span class="spacer"></span>
@@ -100,7 +100,8 @@ byId('list').addEventListener('click', async event => {
       }
       case 'send': {
         const result = await send(`${base}/reply`, 'POST', { text: box.value });
-        notice(result.reply_status === 'queued' ? '已确认，系统会用收到这条消息的账号发出。' : '这条消息系统发不了，请点“复制”，到手机上回复后再点“已手动回复”。');
+        notice(result.reply_via === 'phone' ? '已确认，专用手机会在几分钟内用抖音 App 发出，发完这里会显示“已由专用手机发出”。'
+          : result.reply_status === 'queued' ? '已确认，系统会用收到这条消息的账号发出。' :'这条消息系统发不了，请点“复制”，到手机上回复后再点“已手动回复”。');
         await load();
         break;
       }

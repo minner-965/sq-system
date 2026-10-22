@@ -29,7 +29,7 @@ from psycopg.types.json import Jsonb
 from xiaohongshu_reader import read_xiaohongshu_note_text, read_xiaohongshu_notes
 from channels_reader import read_channels_posts
 import demand_search
-from phone_driver import PhoneNotReady, phone_status, post_moments
+from phone_driver import PhoneNotReady, PhoneStepFailed, check_app, phone_status, post_moments, send_douyin_message
 import direct_proxy
 from gov_permits import read_permits
 from gov_tenders import read_tenders
@@ -40,11 +40,13 @@ ROOT = HERE.parent
 VENDOR = HERE / "vendor" / "social-auto-upload"
 MEDIA_DIR = Path(os.environ.get("HZ_MEDIA_DIR") or ROOT / "data" / "media")
 # 写进在线状态里，方便确认正在运行的是不是最新的程序。改了发布逻辑就加一。
-VERSION = "v23"
+VERSION = "v24"
 POLL_SECONDS = 20
 RUN_LOCK_KEY = 20261011
 # 2026-10-12 实测：从创作者后台发出的私信对方收不到（手机上发的能收到）。所以不从后台发私信，由人在手机上回。
 # 发送的程序留着（douyin_reader.send_stranger_message），升级企业号、确认能送达后再改成 True。
+# 专用手机到了以后，人确认过的私信回复可以从手机的抖音 App 发（网页上“专用手机”里的开关，记为 reply_via = 'phone'）；
+# 陌生人自动回复不走手机，仍然由这个常量关着，等对方那一侧确认收得到再说。
 DM_SENDING_AVAILABLE = False
 # 两条私信回复之间至少隔这么久（发得太密容易被平台限制）。
 MESSAGE_GAP_MINUTES = 3
@@ -285,7 +287,60 @@ def phone_heartbeat(conn: psycopg.Connection) -> None:
         status = phone_status()
     except Exception as error:
         status = {"connected": False, "ready": False, "note": f"看手机状态时出错：{error}"[:120]}
+    # 能不能真的去发：手机连着、App 装了、最近一次测试看到已登录，再加上管理员在网页上打开了开关。
+    switches = phone_switches(conn)
+    status["moments_ready"] = bool(status.get("ready") and status.get("wechat") and switches["wechat_ok"] and switches["moments_enabled"])
+    status["douyin_message_ready"] = bool(status.get("ready") and status.get("douyin") and switches["douyin_ok"] and switches["dm_enabled"])
     conn.execute("UPDATE leadgen.publisher_heartbeat SET phone = %s, phone_checked_at = now() WHERE id = 1", (Jsonb(status),))
+
+
+def phone_switches(conn: psycopg.Connection) -> dict:
+    """网页上的两个开关，和两个 App 最近一次测试是否通过（通过 = 已登录、要用的页面能打开）。"""
+    row = conn.execute(
+        """SELECT s.moments_enabled, s.dm_enabled,
+                  (SELECT r.status = 'succeeded' FROM leadgen.phone_check_requests r WHERE r.app = 'wechat' AND r.finished_at IS NOT NULL ORDER BY r.finished_at DESC LIMIT 1) AS wechat_ok,
+                  (SELECT r.status = 'succeeded' FROM leadgen.phone_check_requests r WHERE r.app = 'douyin' AND r.finished_at IS NOT NULL ORDER BY r.finished_at DESC LIMIT 1) AS douyin_ok
+           FROM leadgen.phone_settings s WHERE s.id = 1""").fetchone()
+    if not row:
+        return {"moments_enabled": False, "dm_enabled": False, "wechat_ok": False, "douyin_ok": False}
+    return {key: bool(value) for key, value in row.items()}
+
+
+def keep_phone_screenshot(source: str | None, relative: str) -> str | None:
+    """把手机截图复制到素材目录下，页面上可以直接点开看。返回相对路径。"""
+    if not source or not Path(source).exists():
+        return None
+    target = MEDIA_DIR / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(Path(source).read_bytes())
+    return relative
+
+
+def process_phone_checks(conn: psycopg.Connection) -> None:
+    """处理页面上的“测试一下”：打开微信或抖音看一眼要用的页面，截一张图。不发任何东西。
+    超过 15 分钟没被处理的请求作废。"""
+    conn.execute(
+        "UPDATE leadgen.phone_check_requests SET status = 'failed', message = '发布程序当时没有在运行', finished_at = now() "
+        "WHERE status = 'queued' AND created_at < now() - interval '15 minutes'")
+    request = conn.execute("SELECT id, app FROM leadgen.phone_check_requests WHERE status = 'queued' ORDER BY created_at LIMIT 1").fetchone()
+    if not request:
+        return
+    conn.execute("UPDATE leadgen.phone_check_requests SET status = 'running' WHERE id = %s", (request["id"],))
+    try:
+        result = check_app(request["app"])
+    except PhoneNotReady as error:
+        result = {"logged_in": None, "page_ok": False, "note": str(error), "screenshot": None}
+    except Exception as error:
+        result = {"logged_in": None, "page_ok": False, "note": f"手机操作出错：{error}"[:200], "screenshot": None}
+    ok = bool(result["logged_in"] and result["page_ok"])
+    try:
+        screenshot = keep_phone_screenshot(result.get("screenshot"), f"phone-checks/{request['id']}.png")
+    except Exception:
+        screenshot = None
+    conn.execute(
+        "UPDATE leadgen.phone_check_requests SET status = %s, logged_in = %s, page_ok = %s, message = %s, screenshot = %s, finished_at = now() WHERE id = %s",
+        ("succeeded" if ok else "failed", result["logged_in"], result["page_ok"], result["note"][:300], screenshot, request["id"]))
+    print(f"手机测试（{'微信' if request['app'] == 'wechat' else '抖音'}）：{result['note']}")
 
 
 def heartbeat(conn: psycopg.Connection) -> None:
@@ -347,14 +402,23 @@ def fail(conn: psycopg.Connection, task: dict, reason: str) -> None:
 
 
 def publish_moments(conn: psycopg.Connection, task: dict) -> None:
-    """朋友圈：用专用手机发。失败一次就把这个账号暂停，不接着发后面的，等人看过原因再恢复。"""
+    """朋友圈：用专用手机发。失败一次就把这个账号暂停，不接着发后面的，等人看过原因再恢复。
+    管理员在“发布账号 → 专用手机”里测试通过并打开“发朋友圈”之前，一条都不发。"""
     files = conn.execute(
         "SELECT kind, file_path FROM leadgen.material_files WHERE material_id = %s ORDER BY sort_order", (task["material_id"],)).fetchall()
     images = [str(MEDIA_DIR / row["file_path"]) for row in files if row["kind"] == "image"]
+    screenshot, _ = failure_screenshot(task)
+    screenshot.unlink(missing_ok=True)
     try:
-        if not images:
-            raise PhoneNotReady("朋友圈现在只发图文，这条素材里没有图片")
-        post_moments(task["body"], images)
+        if not phone_switches(conn)["moments_enabled"]:
+            raise PhoneNotReady("发朋友圈还没有打开：先在“发布账号 → 专用手机”里点“测试一下”，通过后打开“发朋友圈”")
+        if not images and any(row["kind"] == "video" for row in files):
+            raise PhoneNotReady("朋友圈现在只发文字和图片，这条素材里只有视频")
+        post_moments(task["body"], images[:9])
+    except PhoneStepFailed as error:
+        reason = str(error)
+        if error.screenshot and Path(error.screenshot).exists():
+            screenshot.write_bytes(Path(error.screenshot).read_bytes())
     except PhoneNotReady as error:
         reason = str(error)
     except Exception as error:
@@ -861,14 +925,16 @@ def process_replies(conn: psycopg.Connection) -> None:
     追评在评论管理页上不单独显示，回复落在它所在的那条一级评论下面（同一串对话里）。"""
     message = conn.execute(
         """
-        SELECT i.id, i.kind, i.account_id, i.reply_text, i.post_title AS post_title, t.title AS task_title, a.account_name, i.sender_name AS who,
+        SELECT i.id, i.kind, i.account_id, i.reply_text, i.reply_via, i.post_title AS post_title, t.title AS task_title, a.account_name, i.sender_name AS who,
                COALESCE(i.thread_sender_name, i.sender_name) AS sender_name, COALESCE(i.thread_comment_text, i.content) AS content
         FROM leadgen.interaction_messages i
         JOIN leadgen.publish_accounts a ON a.id = i.account_id
         LEFT JOIN leadgen.publish_tasks t ON t.id = i.publish_task_id
-        WHERE i.reply_status = 'queued' AND i.platform = 'douyin' AND a.login_status = 'ok' AND NOT a.is_paused
-          AND ((i.kind = 'comment' AND t.id IS NOT NULL)
-               OR (%s AND i.kind = 'direct_message' AND i.source = 'reader' AND NOT EXISTS (
+        WHERE i.reply_status = 'queued' AND i.platform = 'douyin' AND NOT a.is_paused
+          AND ((i.kind = 'comment' AND t.id IS NOT NULL AND a.login_status = 'ok')
+               OR (i.kind = 'direct_message' AND i.source = 'reader'
+                   AND (i.reply_via = 'phone' OR (%s AND a.login_status = 'ok'))
+                   AND NOT EXISTS (
                      SELECT 1 FROM leadgen.interaction_messages recent
                      WHERE recent.kind = 'direct_message' AND recent.account_id = i.account_id AND recent.replied_at > now() - make_interval(mins => %s))))
         ORDER BY i.reply_confirmed_at LIMIT 1
@@ -876,11 +942,16 @@ def process_replies(conn: psycopg.Connection) -> None:
     if not message:
         return
     try:
-        if message["kind"] == "direct_message":
+        if message["kind"] == "direct_message" and message["reply_via"] == "phone":
+            # 人确认过的私信回复，从专用手机的抖音 App 发。确认之后开关又被关掉的，不发。
+            if not phone_switches(conn)["dm_enabled"]:
+                raise ReplyError("手机回私信已经关掉了，没有发出")
+            send_douyin_message(message["who"], message["content"], message["reply_text"])
+        elif message["kind"] == "direct_message":
             asyncio.run(send_stranger_message(message["account_id"], message["who"], message["content"], message["reply_text"], follow_to_main=True))
         else:
             asyncio.run(send_comment_reply(message["account_id"], message["task_title"], message["sender_name"], message["content"], message["reply_text"]))
-    except ReplyError as error:
+    except (ReplyError, PhoneNotReady, PhoneStepFailed) as error:
         reason = str(error)
     except Exception as error:
         reason = f"发送时出错：{error}"[:200]
@@ -890,7 +961,7 @@ def process_replies(conn: psycopg.Connection) -> None:
         return
     conn.execute(
         "UPDATE leadgen.interaction_messages SET reply_status = 'failed', replied_at = CASE WHEN kind = 'direct_message' THEN now() ELSE replied_at END, reply_error = %s, updated_at = now() WHERE id = %s",
-        (reason if "点了发送" in reason else f"{reason}。请复制回复内容到手机上回复", message["id"]))
+        (reason if "点了发送" in reason or "不要直接重发" in reason else f"{reason}。请复制回复内容到手机上回复", message["id"]))
     print(f"回复没有发出去：{message['who']}，{reason}")
 
 
@@ -982,6 +1053,7 @@ def main(argv: list[str]) -> int:
                         keep_direct()
                         heartbeat(conn)
                         phone_heartbeat(conn)
+                        process_phone_checks(conn)
                         process_login_requests(conn)
                         process_due(conn)
                         process_inbox_checks(conn)
