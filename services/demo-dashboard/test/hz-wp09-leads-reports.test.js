@@ -69,6 +69,7 @@ test('a reporting period is two calendar days in Guangzhou time and at most a ye
 
 test('leasing staff see only their own workload row and nobody reads the floor price in a report', () => {
   const service = readFileSync(path.join(appRoot, 'src', 'reports', 'reportService.js'), 'utf8');
-  assert.match(service, /user\.role === 'LEASING' \? user\.id : null/);
+  assert.match(service, /seesOnlyOwnWorkload\(user\) \? user\.id : null/);
+  assert.match(service, /own_row_only: seesOnlyOwnWorkload\(user\)/);
   assert.doesNotMatch(service, /floor_price|intended_price/);
 });

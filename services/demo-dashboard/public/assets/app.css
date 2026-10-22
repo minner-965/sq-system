@@ -420,3 +420,26 @@ td.demand{min-width:240px;max-width:360px}
 .tile-note:focus{outline:0;border-color:var(--primary)}
 .tile figcaption .btn{justify-self:start}
 @media (max-width:760px){.library-grid{grid-template-columns:repeat(2,1fr);gap:10px;padding:12px 16px}}
+/* 人员和权限 */
+.people{margin-bottom:16px}
+.people-table td.acts{white-space:nowrap;text-align:right}
+.people-table td.acts .btn.sm:first-child{margin-left:0}
+.people-table tr.off-row td{color:var(--text-3)}
+.people-roles{padding:12px 20px 16px;border-top:1px solid var(--line-soft);font-size:12px;color:var(--text-3);line-height:1.7}
+#p-sectors{display:flex;flex-wrap:wrap;gap:8px 0}
+#p-sectors-field{border:0}
+#p-sectors-field legend{font-size:13px;color:var(--text-2);margin-bottom:6px}
+#p-role-note{font-size:12px;color:var(--text-3);margin-top:6px}
+.secret-row{display:flex;gap:8px;margin:10px 0 12px}
+.secret-row input{flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-family:Consolas,"SFMono-Regular",Menlo,monospace;font-size:16px;letter-spacing:.5px;color:var(--text);background:#FAFBFC}
+.secret-warn{font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:8px 12px}
+@media (max-width:640px){
+  .people .ph{flex-wrap:wrap;gap:10px}
+  .people-table thead{display:none}
+  .people-table tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px 16px;border-bottom:1px solid var(--line-soft)}
+  .people-table tr:last-child{border-bottom:0}
+  .people-table td{padding:0;border:0}
+  .people-table td[data-label="负责板块"],.people-table td[data-label="最近登录"]{font-size:12px;color:var(--text-2)}
+  .people-table td.acts{grid-column:1 / -1;text-align:left}
+  .people-table td.acts .btn.sm{margin:4px 8px 0 0;padding:8px 16px;font-size:13px}
+}

@@ -144,7 +144,7 @@ test('floor price is returned to administrators only', async () => {
   const admin = await getPolicy('ADMIN');
   assert.equal(JSON.parse(admin.text).items[0].floor_price_per_sqm, '35.00');
 
-  for (const role of ['BOSS', 'LEASING', 'not-a-role']) {
+  for (const role of ['BOSS', 'LEASING', 'OPERATIONS', 'SALES', 'not-a-role']) {
     policyPool.queries.length = 0;
     const result = await getPolicy(role);
     assert.equal(result.status, 200, role);

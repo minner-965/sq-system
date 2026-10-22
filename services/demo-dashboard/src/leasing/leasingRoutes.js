@@ -1,5 +1,6 @@
 import express from 'express';
 import { canSeeFloorPrice } from '../auth/managementAuth.js';
+import { STAFF_ROLE_CODES } from '../auth/roles.js';
 
 const PROPERTY_TYPES = new Set(['office', 'retail']);
 const PROPERTY_STATUSES = new Set(['available', 'negotiating', 'signed']);
@@ -34,7 +35,7 @@ export async function listProperties(pool, { type, status, building } = {}) {
 
 export function createLeasingRouter({ pool, auth }) {
   const router = express.Router();
-  const read = [auth.authenticate, auth.requireRoles('ADMIN', 'BOSS', 'LEASING')];
+  const read = [auth.authenticate, auth.requireRoles(...STAFF_ROLE_CODES)];
 
   router.get('/properties', ...read, async (req, res, next) => {
     try {
