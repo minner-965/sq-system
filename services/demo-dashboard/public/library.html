@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>素材库 · 恒兆广场招商系统</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="frame">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <header class="top" id="top"></header>
+    <main class="content">
+      <div class="head">
+        <div>
+          <h1>素材库</h1>
+          <p id="sub">各板块的图片和视频放在这里，发内容时直接挑，或者让系统挑</p>
+        </div>
+        <div class="btns">
+          <button class="btn" type="button" id="open-upload" data-requires="write">往库里传</button>
+          <button class="btn pri" type="button" id="open-auto" data-requires="write">让系统挑一组</button>
+        </div>
+      </div>
+
+      <div class="banner" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button class="btn" type="button" id="retry">重新加载</button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+
+      <section class="card settings" id="upload" hidden>
+        <div class="ph"><div><h3>往库里传</h3><p>一次最多 50 个文件，单个不超过 500 MB；库里已有的同一个文件不会重复收</p></div></div>
+        <form class="pb form-grid" id="upload-form">
+          <div class="field"><label for="u-type">属于哪一类</label><select id="u-type" name="content_type" required></select></div>
+          <div class="field" data-property><label for="u-property">关联房源（可不选）</label><select id="u-property" name="property_id"></select></div>
+          <div class="field wide"><label for="u-files">图片和视频</label><input id="u-files" name="files" type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" required></div>
+          <div class="field wide"><label for="u-note">画面里是什么（可不填；写了文案会用到，例如“1307 室内全景，带落地窗”）</label><input id="u-note" name="note" maxlength="500"></div>
+          <div class="wide form-actions"><span class="form-error" id="upload-error" role="alert"></span><button class="btn" type="button" data-close="upload">取消</button><button class="btn pri" type="submit" id="upload-submit">上传</button></div>
+        </form>
+      </section>
+
+      <section class="card settings" id="compose" hidden>
+        <div class="ph"><div><h3 id="compose-title">用选中的素材发一条</h3><p id="compose-sub"></p></div></div>
+        <form class="pb form-grid" id="compose-form">
+          <div class="field wide"><label for="c-topic">主题（一句话说清这次宣传什么）</label><input id="c-topic" name="topic" maxlength="100" required></div>
+          <div class="field"><label for="c-type">内容类型</label><select id="c-type" name="content_type" required></select></div>
+          <div class="field" data-property><label for="c-property">关联房源（可不选）</label><select id="c-property" name="property_id"></select></div>
+          <div class="field wide"><label for="c-note">补充说明（卖点、画面内容，文案只会用这里和系统里的资料）</label><textarea id="c-note" name="note" maxlength="1000"></textarea></div>
+          <fieldset class="field wide"><legend>目标平台</legend><span id="c-platforms"></span></fieldset>
+          <div class="wide form-actions"><span class="form-error" id="compose-error" role="alert"></span><button class="btn" type="button" data-close="compose">取消</button><button class="btn pri" type="submit" id="compose-submit">生成草稿</button></div>
+        </form>
+      </section>
+
+      <div class="card">
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="素材类型" id="tabs"></div>
+          <div class="btns">
+            <label class="toggle"><input type="checkbox" id="only-video">只看视频</label>
+            <label class="toggle"><input type="checkbox" id="show-archived">看已停用的</label>
+          </div>
+        </div>
+        <div class="select-bar" id="select-bar" hidden>
+          <span id="selected-count"></span>
+          <button class="btn sm" type="button" id="clear-selection">清空</button>
+          <button class="btn sm pri" type="button" id="use-selected" data-requires="write">用选中的发一条</button>
+        </div>
+        <div class="library-grid" id="list"><div class="state">正在加载</div></div>
+      </div>
+      <p class="foot-note">挑中的文件会复制进一条新的发布内容，生成各平台的文案草稿，<b>要在“内容发布”里确认后才会发出</b>。系统挑的时候先用最久没用过的。</p>
+    </main>
+  </div>
+  <nav class="mbar" id="mbar" aria-label="主导航"></nav>
+  <script type="module" src="/assets/library.js"></script>
+</body>
+</html>
