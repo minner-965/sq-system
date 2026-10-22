@@ -346,7 +346,9 @@ async function lockTrackReadOnly(client, trackId, user) {
   return track;
 }
 
-const VISIBLE_NOTIFICATION = `(n.recipient_user_id = $1 OR n.recipient_role = $2)`;
+// 运营负责内容发布和收件箱，所以发给系统负责人的发布、互动提醒也给运营看。
+const VISIBLE_NOTIFICATION = `(n.recipient_user_id = $1 OR n.recipient_role = $2
+  OR ($2 = 'operations' AND n.recipient_role = 'admin' AND n.kind IN ('publishing', 'interaction')))`;
 
 export async function listNotifications(pool, user) {
   const { rows } = await pool.query(`

@@ -1,6 +1,7 @@
 import express from 'express';
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateDetailId } from './httpIdValidation.js';
@@ -24,6 +25,7 @@ import { createLlmClient } from './llm/llmClient.js';
 import { createPublishingRouter } from './publishing/publishingRoutes.js';
 import { createInboxRouter } from './inbox/inboxRoutes.js';
 import { createDemandRouter } from './demand/demandRoutes.js';
+import { createUserRouter } from './users/userRoutes.js';
 import { screenPending } from './demand/demandService.js';
 import { classifyPending } from './inbox/inboxService.js';
 
@@ -48,6 +50,10 @@ instrumentPgPool(pool, telemetry);
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 const mediaDir = process.env.HZ_MEDIA_DIR || path.join(process.env.DPV_PROJECT_ROOT || fileURLToPath(new URL('../../..', import.meta.url)), 'data', 'media');
+// 网页上重置的密码追加到哪个本机文件（不进 Git）。容器里默认不写：data/ 只挂载了 media，写进去的文件重建后就没了，
+// 这时新密码只在页面上显示一次。需要留底时设置 HZ_ACCOUNTS_FILE 并把它挂载出来。
+const accountsFile = process.env.HZ_ACCOUNTS_FILE
+  || (existsSync('/.dockerenv') ? null : path.join(process.env.DPV_PROJECT_ROOT || fileURLToPath(new URL('../../..', import.meta.url)), 'data', 'accounts.local.txt'));
 
 const scoringService = new ScoringService({ pool });
 const automationControls = new AutomationControlService({ pool });
@@ -155,6 +161,7 @@ function mountWorkspace(auth) {
   app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
   app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
   app.use('/api/demand', createDemandRouter({ pool, auth, llm }));
+  app.use('/api/users', createUserRouter({ pool, auth, credentialsFile: accountsFile }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })

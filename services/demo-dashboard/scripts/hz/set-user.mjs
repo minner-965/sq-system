@@ -1,9 +1,10 @@
 // 新建账号或重置密码。密码随机生成，只写到本机的 data/accounts.local.txt（不进 Git），不在屏幕上显示。
 // 用法（在 services/demo-dashboard 下）：
 //   npm run user:set -- --username boss --name 老板 --role boss
-//   npm run user:set -- --username chen --name 陈经理 --role leasing --sectors office_retail,dining
+//   npm run user:set -- --username lin --name 销售 --role sales --sectors office_retail,dining
 //   npm run user:set -- --username admin                （只重置密码）
-// 角色：admin 管理员、boss 老板（只读）、leasing 招商人员（按板块）。
+// 角色：admin 系统负责人、boss 老板（只读）、operations 运营（全部板块）、sales 销售（按板块）；leasing 招商人员是旧角色。
+// 系统负责人也可以在网页“系统设置 → 人员和权限”里做这些事。
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -29,7 +30,7 @@ try {
   if (!existing && !(values.name && values.role)) throw new Error('新账号需要 --name 和 --role');
   const { rows: [user] } = await client.query(`
     INSERT INTO leadgen.users (username, display_name, role_key, password_hash)
-    VALUES ($1, COALESCE($2, $1), COALESCE($3, 'leasing'), $4)
+    VALUES ($1, COALESCE($2, $1), COALESCE($3, 'sales'), $4)
     ON CONFLICT (username) DO UPDATE SET
       display_name = COALESCE($2, users.display_name), role_key = COALESCE($3, users.role_key),
       password_hash = $4, failed_login_count = 0, locked_until = NULL, is_active = true, updated_at = now()

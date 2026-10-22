@@ -1,9 +1,10 @@
-// ADMIN 管理员（全部权限）、BOSS 老板（只读）、LEASING 招商人员，对应 leadgen.roles。
+// ADMIN 系统负责人（全部权限）、BOSS 老板（只读）、OPERATIONS 运营、SALES 销售、LEASING 招商人员（旧），对应 leadgen.roles。
 // 其余是保留模块仍在使用的旧角色名。
 export const MANAGEMENT_ROLES = Object.freeze([
   'ADMIN',
   'BOSS',
   'LEASING',
+  'OPERATIONS',
   'SALES',
   'MANAGEMENT',
   'DATA_ADMIN',

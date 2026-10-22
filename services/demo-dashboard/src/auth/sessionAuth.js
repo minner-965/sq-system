@@ -3,14 +3,13 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import { rateLimit } from 'express-rate-limit';
 import { hashPassword, verifyPassword } from './password.js';
+import { ROLE_CODE } from './roles.js';
 
 const SESSION_HOURS = 12;
 const MAX_FAILED_LOGINS = 5;
 const LOCK_MINUTES = 15;
 // Verified against when the account does not exist, so both cases take the same time.
 const UNKNOWN_ACCOUNT_HASH = hashPassword('unknown-account-placeholder');
-
-const ROLE_CODE = { admin: 'ADMIN', boss: 'BOSS', leasing: 'LEASING' };
 
 /** The signed-in user as business code sees it (req.managementUser). */
 export async function loadUser(pool, userId) {
