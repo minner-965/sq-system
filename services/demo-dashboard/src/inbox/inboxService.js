@@ -1,6 +1,7 @@
 // 互动收件箱：评论和私信的意图分类、提醒、回复、转线索。需求见 docs/hz/自动发帖/功能需求.md 第 6 节。
 import { randomUUID } from 'node:crypto';
 import { findForbidden } from '../publishing/copywriter.js';
+import { phoneDmEnabled } from '../phone/phoneService.js';
 import { hotelPriceLines, primaryHotel } from '../hotels/hotelService.js';
 
 export const INTENTS = Object.freeze({
@@ -18,6 +19,8 @@ const STATUSES = ['new', 'in_progress', 'converted', 'ignored'];
 export const OVERDUE_HOURS = 2;
 // 2026-10-12 实测：从创作者后台发出的私信，发出方看得到、对方收不到；手机上手动发的对方能收到。
 // 所以私信一律由人在手机上回，系统只读、提醒、起草。升级企业号后接平台官方的自动回复时再打开。
+// 专用手机测试通过、管理员打开“在手机上回私信”以后，人确认过的私信回复由手机的抖音 App 发出（见 phoneDmEnabled），
+// 陌生人自动回复仍由这个常量关着。
 export const DM_SENDING_AVAILABLE = false;
 export const DEFAULT_AUTO_REPLY = '您好，这里是恒兆广场招商部，消息已收到。方便留个电话或微信吗？招商同事会尽快联系您，发详细资料、约时间看场。';
 // 内容类型 → 线索进入哪个板块。
@@ -240,20 +243,25 @@ export async function auditKeywordMisses(pool, { llm, env = process.env, limit =
 
 const MESSAGE_COLUMNS = `i.id, i.platform, i.kind, i.post_title, i.post_url, i.publish_task_id, i.sender_name, i.sender_profile_url, i.content,
   i.sent_at, i.source, i.account_id, i.intent, i.intent_reason, i.intent_source, i.status, i.assignee_user_id, a.display_name AS assignee_name,
-  i.company_id, i.reply_text, i.reply_status, i.reply_error, i.replied_at, i.reply_auto, t.material_id,
+  i.company_id, i.reply_text, i.reply_status, i.reply_error, i.replied_at, i.reply_auto, i.reply_via, t.material_id,
   i.intent = ANY($1) AND i.status = 'new' AND i.sent_at < now() - make_interval(hours => $2) AS overdue`;
 
-const decorate = row => ({
+/** 这条私信的回复能不能由专用手机发出：从抖音读进来的私信，并且手机回私信已经打开。 */
+export const phoneCanSend = (row, phoneDm) => Boolean(phoneDm) && row.kind === 'direct_message' && row.source === 'reader'
+  && row.platform === 'douyin' && Boolean(row.account_id);
+
+export const decorate = (row, phoneDm = false) => ({
   ...row, platform_name: PLATFORM_NAME[row.platform], kind_name: KIND_NAME[row.kind], intent_name: row.intent ? INTENTS[row.intent].label : '正在判断',
-  // 系统能不能替人把回复发出去：手工录入的、私信（对方收不到）都不能，只能复制到手机上发。
-  can_send: row.source !== 'manual' && Boolean(row.account_id) && (row.kind !== 'direct_message' || DM_SENDING_AVAILABLE)
+  // 系统能不能替人把回复发出去：手工录入的不能；私信从电脑后台发对方收不到，只有专用手机打开以后才能发，否则复制到手机上发。
+  can_send: row.source !== 'manual' && Boolean(row.account_id) && (row.kind !== 'direct_message' || DM_SENDING_AVAILABLE || phoneCanSend(row, phoneDm)),
+  send_via_phone: !DM_SENDING_AVAILABLE && phoneCanSend(row, phoneDm)
 });
 
 /** Inbox columns hold messages that show intent; ordinary interaction is only counted, spam stays hidden. */
 export async function listInbox(pool, { status = 'new', user, mine = false, limit = 50, offset = 0 }) {
   if (!STATUSES.includes(status)) throw fail(400, 'INBOX_STATUS_INVALID', '分栏不正确');
   const scope = `(i.intent = ANY($1) OR i.status IN ('converted', 'in_progress')) AND ($3::uuid IS NULL OR i.assignee_user_id = $3)`;
-  const [{ rows }, { rows: counts }, { rows: [other] }] = await Promise.all([
+  const [{ rows }, { rows: counts }, { rows: [other] }, phoneDm] = await Promise.all([
     pool.query(`
       SELECT ${MESSAGE_COLUMNS} FROM leadgen.interaction_messages i
       LEFT JOIN leadgen.users a ON a.id = i.assignee_user_id
@@ -265,12 +273,13 @@ export async function listInbox(pool, { status = 'new', user, mine = false, limi
     pool.query(`SELECT i.status, count(*)::int AS n FROM leadgen.interaction_messages i WHERE ${scope.replaceAll('$3', '$2')} GROUP BY i.status`, [LEAD_INTENTS, mine ? user.id : null]),
     pool.query(`
       SELECT count(*) FILTER (WHERE intent = 'chat')::int AS chat, count(*) FILTER (WHERE intent = 'spam')::int AS spam,
-             count(*) FILTER (WHERE intent IS NULL)::int AS pending FROM leadgen.interaction_messages`)
+             count(*) FILTER (WHERE intent IS NULL)::int AS pending FROM leadgen.interaction_messages`),
+    phoneDmEnabled(pool)
   ]);
   return {
     counts: Object.fromEntries(STATUSES.map(key => [key, counts.find(row => row.status === key)?.n ?? 0])),
-    ordinary: other.chat, hidden_spam: other.spam, classifying: other.pending,
-    items: rows.map(decorate)
+    ordinary: other.chat, hidden_spam: other.spam, classifying: other.pending, phone_dm: phoneDm,
+    items: rows.map(row => decorate(row, phoneDm))
   };
 }
 
@@ -451,22 +460,26 @@ export function confirmReply(pool, { messageId, text, manual = false, user }) {
     const forbidden = findForbidden(reply, (await postFacts(client, message)).floors);
     if (forbidden) throw fail(400, 'REPLY_FORBIDDEN_WORDING', `回复里不能出现${forbidden}`);
     // 手工录入的消息在系统里没有对应的平台会话，只能手动回复。
-    const byHand = message.source === 'manual' || !message.account_id || (message.kind === 'direct_message' && !DM_SENDING_AVAILABLE);
+    // 私信：电脑后台发的对方收不到；专用手机测试通过并打开开关后，由手机的抖音 App 发。
+    const viaPhone = !manual && !DM_SENDING_AVAILABLE && phoneCanSend(message, await phoneDmEnabled(client));
+    const byHand = message.source === 'manual' || !message.account_id || (message.kind === 'direct_message' && !DM_SENDING_AVAILABLE && !viaPhone);
     const status = manual ? 'manual' : byHand ? 'failed' : 'queued';
+    const via = status !== 'queued' ? null : viaPhone ? 'phone' : 'platform';
     await client.query(`
       UPDATE leadgen.interaction_messages SET reply_text = $2, reply_status = $3, reply_confirmed_by = $4, reply_confirmed_at = now(),
         replied_at = CASE WHEN $3 = 'manual' THEN now() ELSE replied_at END,
-        reply_error = CASE WHEN $3 = 'failed' THEN $5 ELSE NULL END,
+        reply_error = CASE WHEN $3 = 'failed' THEN $5 ELSE NULL END, reply_via = $6,
         status = CASE WHEN status = 'new' THEN 'in_progress' ELSE status END, handled_by = $4, handled_at = now(), updated_at = now()
       WHERE id = $1`, [messageId, reply, status, user.id,
-      message.kind === 'direct_message' && message.source !== 'manual' ? '私信要在手机上回：从电脑后台发的对方收不到。请复制内容到手机上发，发完点“已手动回复”' : '这条消息是手工录入的，系统发不了，请复制到手机上回复']);
+      message.kind === 'direct_message' && message.source !== 'manual' ? '私信要在手机上回：从电脑后台发的对方收不到。请复制内容到手机上发，发完点“已手动回复”' : '这条消息是手工录入的，系统发不了，请复制到手机上回复',
+      via]);
     if (message.company_id) {
       await client.query(`
         INSERT INTO leadgen.activities (track_id, activity_type, content, created_by)
         SELECT t.id, 'note', $2, $3 FROM leadgen.company_sector_tracks t WHERE t.company_id = $1 ORDER BY t.created_at LIMIT 1`,
       [message.company_id, `${manual ? '已手动回复' : '确认回复'}（${PLATFORM_NAME[message.platform]}）：${reply}`, user.id]);
     }
-    return { reply_status: status };
+    return { reply_status: status, reply_via: via };
   });
 }
 

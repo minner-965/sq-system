@@ -21,7 +21,7 @@ let phone = { known: false, note: '' };
 function phoneLine() {
   const tag = phone.ready && phone.moments_ready ? '<span class="status st-ok">手机可以用</span>'
     : phone.connected ? '<span class="status st-warn">手机已连接，还不能发</span>' : '<span class="status st-wait">手机没有连接</span>';
-  const detail = phone.ready && !phone.moments_ready ? '手机已连接，发朋友圈的步骤还没有在这台手机上调好' : phone.note;
+  const detail = phone.ready && !phone.moments_ready ? '手机已连接，发朋友圈还没有打开，见下方“专用手机”' : phone.note;
   return `${tag}<div class="meta">${escapeHtml(detail)}${phone.model ? ` · ${escapeHtml(phone.model)}` : ''}</div>`;
 }
 
@@ -122,5 +122,90 @@ if (canWrite) {
     } catch (error) { byId('add-error').textContent = error.message; }
   });
 }
+// ---------- 专用手机 ----------
+
+let phonePolling;
+const SWITCHES = [['moments', '发朋友圈', 'wechat'], ['dm', '在手机上回私信', 'douyin']];
+
+function appFact(panel, app) {
+  const check = panel.checks[app];
+  const installed = panel[`${app}_installed`];
+  const install = !panel.known ? '<span class="status st-wait">不知道</span>'
+    : installed ? '<span class="status st-ok">已安装</span>' : `<span class="status st-bad">手机上没有装${check.app_name}</span>`;
+  let last = '<div class="meta">还没有测试过</div>';
+  if (check.running) last = '<div class="meta">正在测试，手机上会自动打开 App，请不要动手机</div>';
+  else if (check.status) {
+    const tag = check.status === 'succeeded' ? '<span class="status st-ok">测试通过</span>' : '<span class="status st-bad">测试没通过</span>';
+    last = `<div class="meta">${tag} ${check.finished_at ? dateTime(check.finished_at) : ''}${check.message ? `：${escapeHtml(check.message)}` : ''}
+      ${check.screenshot_url ? ` <a class="lk" href="${escapeHtml(check.screenshot_url)}" target="_blank" rel="noopener">看手机截图</a>` : ''}</div>`;
+  }
+  return `<div><span>${check.app_name}</span><b>${install}${last}</b></div>`;
+}
+
+function switchRow(panel, [key, label, app]) {
+  const item = panel.switches[key];
+  const appName = panel.checks[app].app_name;
+  const state = item.enabled
+    ? `<span class="status ${item.working ? 'st-ok' : 'st-warn'}">已打开</span>${item.enabled_by ? `<span class="meta">${escapeHtml(item.enabled_by)} ${item.enabled_at ? dateTime(item.enabled_at) : ''} 打开</span>` : ''}
+       ${item.working ? '' : `<span class="meta late">现在发不了：${panel.connected ? `${appName}的测试要在 ${panel.test_valid_days} 天内重新通过` : '手机没有连接'}</span>`}`
+    : `<span class="status st-wait">关着</span><span class="meta">${item.can_enable ? `${appName}测试已通过，可以打开` : `先点“测试一下${appName}”，通过后才能打开`}</span>`;
+  const button = isAdmin
+    ? `<button class="btn sm${item.enabled ? '' : ' pri'}" type="button" data-switch="${key}" data-enabled="${item.enabled}"${item.enabled || item.can_enable ? '' : ' disabled'}>${item.enabled ? '关闭' : '打开'}</button>` : '';
+  return `<div class="phone-switch"><b>${label}</b>${state}<span class="spacer"></span>${button}</div>`;
+}
+
+function renderPhone(panel) {
+  const running = Object.values(panel.checks).some(check => check.running);
+  const connection = !panel.known ? `<span class="status st-wait">不知道</span><div class="meta">${escapeHtml(panel.note)}</div>`
+    : `<span class="status ${panel.ready ? 'st-ok' : panel.connected ? 'st-warn' : 'st-wait'}">${panel.connected ? '已连接' : '没有连接'}</span>
+       <div class="meta">${escapeHtml(panel.note)}${panel.model ? ` · ${escapeHtml(panel.model)}` : ''}</div>`;
+  const testable = canWrite && panel.publisher_online && panel.connected && !running;
+  byId('phone-body').innerHTML = `
+    <div class="facts">
+      <div><span>连接</span><b>${connection}</b></div>
+      ${appFact(panel, 'wechat')}
+      ${appFact(panel, 'douyin')}
+    </div>
+    ${canWrite ? `<div class="msg-actions" style="margin-top:16px">
+      <button class="btn sm" type="button" data-check="wechat"${testable ? '' : ' disabled'}>测试一下微信</button>
+      <button class="btn sm" type="button" data-check="douyin"${testable ? '' : ' disabled'}>测试一下抖音</button>
+      <span class="meta">只打开 App 看一眼、截一张图，不会发任何内容</span>
+    </div>` : ''}
+    <div class="phone-switches">${SWITCHES.map(row => switchRow(panel, row)).join('')}</div>
+    ${isAdmin ? '' : '<p class="meta">两个开关由管理员在测试通过后打开</p>'}`;
+  clearTimeout(phonePolling);
+  if (running) phonePolling = setTimeout(loadPhone, 4000);
+}
+
+async function loadPhone() {
+  try {
+    renderPhone(await api('/api/inbox/phone'));
+  } catch (error) {
+    byId('phone-body').innerHTML = `<div class="state">手机状态没有读出来：${escapeHtml(error.message)}</div>`;
+  }
+}
+
+byId('phone-body').addEventListener('click', async event => {
+  const button = event.target.closest('[data-check],[data-switch]');
+  if (!button) return;
+  button.disabled = true;
+  try {
+    if (button.dataset.check) {
+      await send('/api/inbox/phone/checks', 'POST', { app: button.dataset.check });
+      notice('已发起测试。手机上会自动打开 App，半分钟左右出结果，请不要动手机。');
+      await loadPhone();
+    } else {
+      const enable = button.dataset.enabled !== 'true';
+      const label = SWITCHES.find(([key]) => key === button.dataset.switch)[1];
+      if (enable && !window.confirm(`打开“${label}”以后，确认过的内容会由这台手机发出。确定打开吗？`)) { button.disabled = false; return; }
+      renderPhone(await send(`/api/inbox/phone/switches/${button.dataset.switch}`, 'PUT', { enabled: enable }));
+      notice(enable ? `“${label}”已打开。` : `“${label}”已关闭，手机上不会再发。`);
+    }
+  } catch (error) {
+    notice(error.message);
+    button.disabled = false;
+  }
+});
+
 byId('retry').addEventListener('click', load);
-await load();
+await Promise.all([load(), loadPhone()]);

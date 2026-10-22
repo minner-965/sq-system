@@ -472,3 +472,10 @@ td.demand{min-width:240px;max-width:360px}
   .price-notes.form-grid,.price-notes.facts{grid-template-columns:1fr}
   .hotel-prices .form-actions{flex-wrap:wrap}
 }
+
+/* 手机 */
+.phone-card{margin-top:16px}
+.phone-switches{display:grid;margin-top:16px;border-top:1px solid var(--line-soft)}
+.phone-switch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:14px}
+.phone-switch b{font-weight:600;min-width:112px}
+.phone-switch .spacer{flex:1}
