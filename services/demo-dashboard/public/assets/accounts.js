@@ -65,7 +65,7 @@ async function load() {
     byId('publisher-line').textContent = data.publisher.online ? '发布程序正在这台电脑上运行'
       : `发布程序没有在运行${data.publisher.last_seen_at ? `（最后在线 ${dateTime(data.publisher.last_seen_at)}）` : ''}。扫码登录和到点发布都需要它：双击 publisher 文件夹里的 start-publisher.cmd`;
     byId('list').innerHTML = data.items.length ? `<div class="stack">${data.items.map(accountCard).join('')}</div>`
-      : `<div class="card"><div class="state"><b>还没有发布账号</b>${canWrite ? '点右上角“添加账号”' : '管理员添加后会显示在这里'}</div></div>`;
+      : `<div class="card"><div class="state"><b>还没有发布账号</b>${canWrite ? '点右上角“添加账号”' : '系统负责人添加后会显示在这里'}</div></div>`;
     clearTimeout(polling);
     // 有账号在等扫码时自动刷新，扫完马上能看到结果。
     if (data.items.some(account => ['queued', 'opened'].includes(account.login_request_status))) polling = setTimeout(load, 4000);
@@ -103,7 +103,7 @@ byId('list').addEventListener('click', async event => {
   }
 });
 
-if (!canWrite) byId('publisher-line').insertAdjacentHTML('afterend', '<p class="meta">这个账号只能查看，添加账号和扫码登录请用招商或管理员账号</p>');
+if (!canWrite) byId('publisher-line').insertAdjacentHTML('afterend', '<p class="meta">这个账号只能查看，添加账号和扫码登录请用招商或系统负责人账号</p>');
 if (canWrite) {
   byId('open-add').hidden = false;
   byId('open-add').addEventListener('click', () => { byId('add').hidden = false; byId('a-name').focus(); });
@@ -172,7 +172,7 @@ function renderPhone(panel) {
       <span class="meta">只打开 App 看一眼、截一张图，不会发任何内容</span>
     </div>` : ''}
     <div class="phone-switches">${SWITCHES.map(row => switchRow(panel, row)).join('')}</div>
-    ${isAdmin ? '' : '<p class="meta">两个开关由管理员在测试通过后打开</p>'}`;
+    ${isAdmin ? '' : '<p class="meta">两个开关由系统负责人在测试通过后打开</p>'}`;
   clearTimeout(phonePolling);
   if (running) phonePolling = setTimeout(loadPhone, 4000);
 }
