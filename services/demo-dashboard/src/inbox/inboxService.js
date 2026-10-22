@@ -1,6 +1,7 @@
 // 互动收件箱：评论和私信的意图分类、提醒、回复、转线索。需求见 docs/hz/自动发帖/功能需求.md 第 6 节。
 import { randomUUID } from 'node:crypto';
 import { findForbidden } from '../publishing/copywriter.js';
+import { hotelPriceLines, primaryHotel } from '../hotels/hotelService.js';
 
 export const INTENTS = Object.freeze({
   inquiry: { label: '询价或租铺', lead: true },
@@ -338,8 +339,35 @@ export function setStatus(pool, { messageId, status, user }) {
   });
 }
 
+// 评论或私信里问到住宿的说法。
+const HOTEL_QUESTION = /酒店|住宿|房价|入住|住一晚|住几晚|订房|协议价|长住|会议室|宜尚|大床房|双床房|标间|一晚多少/;
+const DINING_QUESTION = /餐|饭|菜|包间|订桌|围/;
+
+/** Whether a message is about staying at the hotel: under a hotel post, or (with no post) a booking or a stay question. */
+export function asksAboutHotel(message, post) {
+  const content = String(message.content || '');
+  if (post) return post.content_type === 'hotel';
+  return HOTEL_QUESTION.test(content) || (message.intent === 'booking' && !DINING_QUESTION.test(content));
+}
+
+/** 酒店的对外资料和填了的房价：问到酒店、订房时给模型，回复可以直接报这些价格。 */
+export async function hotelReplyFacts(db) {
+  const hotel = await primaryHotel(db);
+  if (!hotel) return [];
+  const prices = hotelPriceLines(hotel);
+  return [
+    `酒店：${hotel.name}${hotel.address ? `，${hotel.address}` : ''}`,
+    hotel.check_in_time ? `入住 ${hotel.check_in_time}，退房 ${hotel.check_out_time}` : null,
+    ...(prices.length ? prices : ['酒店房价：没有对外报价，问价时说“具体价格我确认一下再回您”'])
+  ].filter(Boolean);
+}
+
 async function postFacts(db, message) {
-  if (!message.publish_task_id) return { lines: await mentionedUnits(db, message.content), floors: await floors(db, null) };
+  if (!message.publish_task_id) {
+    const lines = await mentionedUnits(db, message.content);
+    if (asksAboutHotel(message, null)) lines.push(...await hotelReplyFacts(db));
+    return { lines, floors: await floors(db, null) };
+  }
   const { rows: [post] } = await db.query(`
     SELECT m.topic, m.note, m.content_type, t.body, p.building, p.floor, p.unit_no, p.property_type, p.area_sqm,
            p.list_rent_per_sqm, p.management_fee_per_sqm, p.fit_out
@@ -351,6 +379,7 @@ async function postFacts(db, message) {
     lines.push(`房源：${post.building} ${post.floor} 层 ${post.unit_no}，${Number(post.area_sqm)} ㎡${post.fit_out ? `，${post.fit_out}` : ''}`);
     lines.push(`公开报价：租金 ${Number(post.list_rent_per_sqm)} 元/㎡·月，管理费 ${Number(post.management_fee_per_sqm)} 元/㎡·月`);
   }
+  if (asksAboutHotel(message, post)) lines.push(...await hotelReplyFacts(db));
   return { lines, floors: await floors(db, post.property_type) };
 }
 
@@ -375,7 +404,7 @@ const REPLY_PROMPT = `你是广州恒兆广场的招商或客服人员，要回�
 要求：
 1. 先正面回答对方问的事，只用给出的事实；事实里没有的不要编，可以说“具体的我私信您”。
 2. 引导对方留电话，或私信我们加工作微信，方便详细介绍、约时间看场。
-3. 租金只说公开报价或“欢迎咨询”，不提任何优惠价、最低价、底价。
+3. 租金只说公开报价或“欢迎咨询”，不提任何优惠价、最低价、底价。酒店房价只报事实里“房价”“长住价格”“会议室价格”给出的，数字照原样说；没给的不报，不说打折。
 4. 口语化，像真人回复，不超过 80 字，不用感叹号堆砌，不写“亲”“家人们”。
 只输出 JSON：{"reply":"..."}`;
 

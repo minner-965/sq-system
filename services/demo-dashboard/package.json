@@ -21,7 +21,8 @@
     "library:import": "node --env-file=../../.env scripts/hz/import-library.mjs",
     "check:library": "node --env-file=../../.env scripts/hz/check-library.mjs",
     "check:lead-form": "node --env-file=../../.env scripts/hz/check-lead-form.mjs",
-    "check:publish-rules": "node --env-file=../../.env scripts/hz/check-publish-rules.mjs",
+    "check:hotel-prices": "node --env-file=../../.env scripts/hz/check-hotel-prices.mjs",
+    "check:publish-rules":"node --env-file=../../.env scripts/hz/check-publish-rules.mjs",
     "user:set": "node --env-file=../../.env scripts/hz/set-user.mjs",
     "import:properties": "node --env-file=../../.env scripts/hz/import-properties.mjs",
     "test:native-smoke": "node scripts/check-native-dependencies.mjs"

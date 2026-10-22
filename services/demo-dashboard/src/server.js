@@ -24,6 +24,7 @@ import { createLlmClient } from './llm/llmClient.js';
 import { createPublishingRouter } from './publishing/publishingRoutes.js';
 import { createInboxRouter } from './inbox/inboxRoutes.js';
 import { createDemandRouter } from './demand/demandRoutes.js';
+import { createHotelRouter } from './hotels/hotelRoutes.js';
 import { screenPending } from './demand/demandService.js';
 import { classifyPending } from './inbox/inboxService.js';
 
@@ -155,6 +156,7 @@ function mountWorkspace(auth) {
   app.use('/api/publishing', createPublishingRouter({ pool, auth, llm, mediaDir }));
   app.use('/api/inbox', createInboxRouter({ pool, auth, llm }));
   app.use('/api/demand', createDemandRouter({ pool, auth, llm }));
+  app.use('/api/hotels', createHotelRouter({ pool, auth }));
   app.use('/api/discovery', createDiscoveryRouter({
     pool, auth, providers, llm,
     enqueueRun: runId => jobQueue.enqueue(PHASE5_QUEUES.DISCOVER_COMPANIES, { run_id: runId }, { singletonKey: runId })
