@@ -3,7 +3,7 @@ import { api, escapeHtml, initShell } from './shell.js';
 const STAGES = [['new', '待联系'], ['contacted', '已联系'], ['viewing', '已看场'], ['negotiating', '洽谈中'], ['signed', '已签约'], ['lost', '已放弃']];
 const LOST_REASONS = [['price', '价格贵'], ['location', '位置不合适'], ['layout', '格局不合适'], ['other', '其他']];
 const ACTIVITY_TYPES = [['call', '电话'], ['visit', '拜访'], ['viewing', '看场'], ['wechat', '微信'], ['note', '备注']];
-const PRICE_WARNING = '意向价低于公司可接受的最低条件，已通知管理员。按这个价格只有管理员能办理签约。';
+const PRICE_WARNING = '意向价低于公司可接受的最低条件，已通知系统负责人。按这个价格只有系统负责人能办理签约。';
 
 const byId = id => document.getElementById(id);
 const companyId = new URLSearchParams(location.search).get('id');

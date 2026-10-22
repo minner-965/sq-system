@@ -88,7 +88,7 @@ async function load() {
     canEdit = data.can_edit;
     byId('hotels').innerHTML = data.items.length
       ? `<div class="stack">${data.items.map(hotel => profileCard(hotel) + pricesCard(hotel)).join('')}</div>`
-      : '<div class="card"><div class="state"><b>还没有酒店资料</b>请联系管理员录入</div></div>';
+      : '<div class="card"><div class="state"><b>还没有酒店资料</b>请联系系统负责人录入</div></div>';
   } catch (error) {
     byId('error-text').textContent = `酒店资料没有加载出来：${error.message}`;
     byId('error').hidden = false;

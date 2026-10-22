@@ -210,7 +210,7 @@ export async function updateTrack(pool, { trackId, user, changes }) {
     next.below_floor_price = belowFloor;
     // 低于底价的单子，只有管理员能改成已签约——这一步就是批准。
     if (belowFloor && merged.stage === 'signed' && track.stage !== 'signed' && user.role !== 'ADMIN') {
-      throw fail(403, 'BELOW_FLOOR_NEEDS_ADMIN', '意向价低于公司可接受的最低条件，需要管理员批准后才能签约');
+      throw fail(403, 'BELOW_FLOOR_NEEDS_ADMIN', '意向价低于公司可接受的最低条件，需要系统负责人批准后才能签约');
     }
 
     // 联系后核实的结果：记下是谁、什么时候核实的。

@@ -292,7 +292,7 @@ export function confirmTask(pool, { taskId, user, scheduledAt }) {
     const { rows: [account] } = await client.query(`
       SELECT id, account_name, daily_limit FROM leadgen.publish_accounts
       WHERE platform = $1 AND purpose = 'publish' AND NOT is_paused ORDER BY created_at LIMIT 1`, [task.platform]);
-    if (!account) throw fail(409, 'PUBLISH_ACCOUNT_MISSING', `还没有可用的${PLATFORMS[task.platform].label}发布账号，请管理员先添加`);
+    if (!account) throw fail(409, 'PUBLISH_ACCOUNT_MISSING', `还没有可用的${PLATFORMS[task.platform].label}发布账号，请系统负责人先添加`);
     let when = scheduledAt ? new Date(scheduledAt) : new Date();
     if (Number.isNaN(when.getTime())) throw fail(400, 'SCHEDULE_INVALID', '发布时间不正确');
     if (when.getTime() < Date.now() - 60_000) when = new Date();

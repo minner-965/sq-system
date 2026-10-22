@@ -32,7 +32,7 @@ function renderList() {
         <td><a class="rowlink" href="/company.html?id=${item.company_id}"><div class="co">${escapeHtml(item.company_name)}</div><div class="meta">${escapeHtml(item.address || '')}</div></a></td>
         <td>${escapeHtml(item.sector_name)} · ${escapeHtml(item.stage_name)}${item.lost_reason_name ? `<div class="meta">${escapeHtml(item.lost_reason_name)}</div>` : ''}</td>
         <td>${escapeHtml(item.owner_name || '未分配')}</td>
-        <td>${escapeHtml(item.intended_property_label || item.intended_service || '—')}${item.below_floor_price ? '<div class="meta late">意向价偏低，待管理员确认</div>' : ''}</td>
+        <td>${escapeHtml(item.intended_property_label || item.intended_service || '—')}${item.below_floor_price ? '<div class="meta late">意向价偏低，待系统负责人确认</div>' : ''}</td>
         <td class="num${item.overdue ? ' down' : ''}">${['signed', 'lost'].includes(item.stage) ? '—' : followUpText(item)}</td>
       </tr>`).join('')}</tbody></table>`;
   }
