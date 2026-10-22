@@ -1,6 +1,6 @@
 // 互动收件箱：评论和私信的意图分类、提醒、回复、转线索。需求见 docs/hz/自动发帖/功能需求.md 第 6 节。
 import { randomUUID } from 'node:crypto';
-import { findForbidden } from '../publishing/copywriter.js';
+import { findForbidden, unsupportedNumbers, unsupportedPraise } from '../publishing/copywriter.js';
 import { phoneDmEnabled } from '../phone/phoneService.js';
 import { hotelPriceLines, primaryHotel } from '../hotels/hotelService.js';
 
@@ -418,10 +418,26 @@ const REPLY_PROMPT = `你是广州恒兆广场的招商或客服人员，要回�
 只输出 JSON：{"reply":"..."}`;
 
 /** Drafts a reply with the model; it is never sent until someone confirms it. */
+const REPLY_REVIEW_PROMPT = `你是校对。下面有一份“资料”和一条根据它写的“回复”。
+找出回复里资料没有依据的说法：资料没给的数字、价格、时间、条件、要求（例如自己加的“需要提供公司信息”“需要提前预约”），以及资料没提的配套和评价。
+请对方留电话、加微信、说“我确认一下再回您”这类话不算。
+给出改好的回复：只删掉没有依据的部分，其余尽量不动，不超过 120 字。
+只输出 JSON：{"unsupported":["回复里没有依据的原句或短语"],"reply":"..."}。没有问题时 unsupported 为空数组，reply 原样返回。`;
+
+/** Numbers or praise in a reply that the supplied facts do not contain. Returns a problem description or null. */
+function replyFactProblem(reply, factsText) {
+  const numbers = unsupportedNumbers(reply, factsText);
+  if (numbers.length) return `资料里没有的数字：${numbers.join('、')}`;
+  const praise = unsupportedPraise(reply, factsText);
+  if (praise.length) return `资料里没有依据的评价：${praise.join('、')}`;
+  return null;
+}
+
 export async function draftReply(pool, { messageId, llm, env = process.env }) {
   if (!llm.configured) throw fail(409, 'LLM_KEY_MISSING', '还没有配置大模型，请直接手写回复');
   const message = await loadMessage(pool, messageId);
   const { lines, floors: floorPrices } = await postFacts(pool, message);
+  const factsText = lines.join('\n');
   const messages = [
     { role: 'system', content: message.kind === 'direct_message' ? `${REPLY_PROMPT}
 注意：这本身就是私信对话，不要说“我私信您”；事实里没有的，说“我确认一下再回您”。` : REPLY_PROMPT },
@@ -437,13 +453,28 @@ export async function draftReply(pool, { messageId, llm, env = process.env }) {
     await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, cost_cny, duration_ms) VALUES ($1, 'chat/completions', '起草回复', 'ok', $2, $3)`,
       [llm.provider, llmCost(result.usage, env), Date.now() - started]);
     reply = String(result.data?.reply || '').trim();
-    problem = !reply ? '没有内容' : findForbidden(reply, floorPrices);
+    problem = !reply ? '没有内容' : findForbidden(reply, floorPrices) || replyFactProblem(reply, factsText);
     if (!problem) break;
     messages.push({ role: 'assistant', content: JSON.stringify(result.data) }, { role: 'user', content: `这一版有问题：${problem === '没有内容' ? problem : `出现了${problem}`}。请重写。` });
   }
   if (problem) throw fail(502, 'REPLY_DRAFT_REJECTED', '起草的回复不合要求，请手写');
+  // 再冷读一遍：资料里没有依据的说法（比如自己加的“需提供公司信息”）删掉，和发布文案用同一套标准。
+  let removed = [];
+  try {
+    const review = await llm.chatJson({
+      messages: [{ role: 'system', content: REPLY_REVIEW_PROMPT }, { role: 'user', content: `资料：\n${factsText || '（没有）'}\n\n回复：\n${reply}` }],
+      maxTokens: 300, temperature: 0
+    });
+    await pool.query(`INSERT INTO leadgen.api_usage_events (provider, endpoint, request_summary, status, cost_cny, duration_ms) VALUES ($1, 'chat/completions', '校对回复', 'ok', $2, $3)`,
+      [llm.provider, llmCost(review.usage, env), Date.now() - started]);
+    const unsupported = Array.isArray(review.data?.unsupported) ? review.data.unsupported.map(item => String(item).trim()).filter(Boolean) : [];
+    const corrected = String(review.data?.reply || '').trim();
+    if (unsupported.length && corrected && !findForbidden(corrected, floorPrices) && !replyFactProblem(corrected, factsText)) { reply = corrected; removed = unsupported; }
+  } catch {
+    // 校对暂时用不了时保留原稿，人发之前本来就要看。
+  }
   await pool.query(`UPDATE leadgen.interaction_messages SET reply_text = $2, reply_status = 'drafted', updated_at = now() WHERE id = $1 AND reply_status IN ('none', 'drafted', 'failed')`, [messageId, reply]);
-  return { reply };
+  return { reply, removed };
 }
 
 /**
